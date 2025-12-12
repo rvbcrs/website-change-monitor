@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      width: 300px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      padding: 16px;
+      background-color: #0d1117;
+      color: #c9d1d9;
+    }
+    h2 {
+      margin-top: 0;
+      color: #58a6ff;
+      font-size: 16px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .input-group {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 4px;
+      color: #8b949e;
+    }
+    input {
+      width: 100%;
+      padding: 8px;
+      background-color: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #c9d1d9;
+      box-sizing: border-box;
+      font-size: 13px;
+    }
+    input:focus {
+      outline: none;
+      border-color: #58a6ff;
+    }
+    button {
+      width: 100%;
+      padding: 8px;
+      background-color: #238636;
+      border: 1px solid rgba(240,246,252,0.1);
+      border-radius: 6px;
+      color: #ffffff;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background-color 0.2s;
+    }
+    button:hover {
+      background-color: #2ea043;
+    }
+    button.secondary {
+      background-color: #21262d;
+      color: #c9d1d9;
+      margin-top: 8px;
+    }
+    button.secondary:hover {
+      background-color: #30363d;
+    }
+    .status {
+      font-size: 11px;
+      margin-top: 8px;
+      text-align: center;
+      min-height: 16px;
+    }
+    .status.success { color: #3fb950; }
+    .status.error { color: #f85149; }
+    
+    #picker-section {
+        display: none;
+        text-align: center;
+    }
+    
+    .divider {
+        height: 1px;
+        background-color: #30363d;
+        margin: 16px 0;
+    }
+  </style>
+</head>
+<body>
+  <h2>
+      <img src="icons/icon48.png" width="20" height="20" style="border-radius: 4px;"> 
+      DeltaWatch Helper
+  </h2>
+
+  <!-- Settings Section -->
+  <div id="settings-section">
+    <div class="input-group">
+      <label for="serverUrl">Server URL</label>
+      <input type="text" id="serverUrl" placeholder="http://localhost:3000" value="http://localhost:3000">
+    </div>
+    <button id="saveSettings">Save & Connect</button>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Picker Section -->
+  <div id="picker-section">
+      <p style="font-size: 13px; margin-bottom: 12px; color: #8b949e;">
+          Go to a page and click below to add a monitor.
+      </p>
+      <button id="startPicker">🎯 Pick Element</button>
+  </div>
+
+  <div id="status" class="status"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
