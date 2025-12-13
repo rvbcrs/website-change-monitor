@@ -10,13 +10,13 @@ const app = express();
 const PORT = 3000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // Serve static files (like the selector script)
 app.use('/static', express.static(path.join(__dirname, 'public')));
 
 const db = require('./db');
-const { summarizeChange, getModels } = require('./ai');
+const { summarizeChange, getModels, analyzePage } = require('./ai');
 
 let globalBrowser = null;
 const sessionContexts = new Map(); // sessionId -> { context, lastAccess }
@@ -103,6 +103,40 @@ app.post('/monitors', (req, res) => {
             "data": { id: newMonitorId, ...req.body },
             "id": newMonitorId
         })
+    });
+});
+
+app.get('/status', (req, res) => {
+    db.all("SELECT id, name, url, active, last_check, last_change, type, tags FROM monitors WHERE active = 1 ORDER BY name ASC", [], async (err, monitors) => {
+        if (err) {
+            res.status(500).json({ "error": err.message });
+            return;
+        }
+
+        // Fetch latest status/history for each to determine "UP/DOWN" roughly
+        const statusData = await Promise.all(monitors.map(async (m) => {
+            return new Promise((resolve) => {
+                // Get the very last check
+                db.get("SELECT status, http_status, created_at FROM check_history WHERE monitor_id = ? ORDER BY created_at DESC LIMIT 1", [m.id], (err, row) => {
+                    resolve({
+                        id: m.id,
+                        name: m.name || m.url, // Fallback to URL if no name
+                        url: m.url,
+                        last_check: m.last_check,
+                        last_change: m.last_change,
+                        status: row ? row.status : 'unknown', // 'changed', 'unchanged', 'error'
+                        http_status: row ? row.http_status : null,
+                        type: m.type,
+                        tags: m.tags ? JSON.parse(m.tags) : []
+                    });
+                });
+            });
+        }));
+
+        res.json({
+            "message": "success",
+            "data": statusData
+        });
     });
 });
 
@@ -448,6 +482,7 @@ app.get('/proxy', async (req, res) => {
             }
 
             // Aggressive Cleanup: Remove any high z-index overlays that might block the view
+            /* 
             try {
                 await page.evaluate(() => {
                     const clean = () => {
@@ -490,6 +525,7 @@ app.get('/proxy', async (req, res) => {
             } catch (e) {
                 console.log("Cleanup warning:", e.message);
             }
+            */
 
             // Just a small safety buffer for animations to finish
             await page.waitForTimeout(1000);
@@ -541,10 +577,12 @@ app.get('/proxy', async (req, res) => {
                 // We now let the user manually close them via "Interact Mode".
 
                 // Specific fallback for the user's site structure found in debug
+                /*
                 const root = document.getElementById('root');
                 if (root && root.firstElementChild && root.firstElementChild.classList.contains('fixed') && root.firstElementChild.classList.contains('inset-0')) {
                     root.firstElementChild.remove();
                 }
+                */
 
             }, selectorScript);
         };
@@ -729,7 +767,8 @@ app.put('/settings', (req, res) => {
         email_enabled, email_host, email_port, email_secure, email_user, email_pass, email_to,
         push_enabled, push_type, push_key1, push_key2,
         ai_enabled, ai_provider, ai_api_key, ai_model, ai_base_url,
-        proxy_enabled, proxy_server, proxy_auth
+        proxy_enabled, proxy_server, proxy_auth,
+        webhook_enabled, webhook_url
     } = req.body;
 
     db.run(
@@ -737,13 +776,15 @@ app.put('/settings', (req, res) => {
             email_enabled = ?, email_host = ?, email_port = ?, email_secure = ?, email_user = ?, email_pass = ?, email_to = ?,
             push_enabled = ?, push_type = ?, push_key1 = ?, push_key2 = ?,
             ai_enabled = ?, ai_provider = ?, ai_api_key = ?, ai_model = ?, ai_base_url = ?,
-            proxy_enabled = ?, proxy_server = ?, proxy_auth = ?
+            proxy_enabled = ?, proxy_server = ?, proxy_auth = ?,
+            webhook_enabled = ?, webhook_url = ?
         WHERE id = 1`,
         [
             email_enabled, email_host, email_port, email_secure, email_user, email_pass, email_to,
             push_enabled, push_type, push_key1, push_key2,
             ai_enabled, ai_provider, ai_api_key, ai_model, ai_base_url,
-            proxy_enabled, proxy_server, proxy_auth
+            proxy_enabled, proxy_server, proxy_auth,
+            webhook_enabled, webhook_url
         ],
         (err) => {
             if (err) {
@@ -790,6 +831,64 @@ app.post('/api/models', async (req, res) => {
         res.json({ message: 'success', data: models });
     } catch (e) {
         console.error("Model fetch error:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Include analyzePage logic endpoint
+app.post('/api/ai/analyze-page', async (req, res) => {
+    const { url, prompt, html } = req.body;
+    console.log(`[AI Analyze] Request for ${url}`);
+
+    try {
+        let pageHtml = html;
+
+        if (!pageHtml) {
+            // Re-use logic to fetch if no HTML provided
+            const settings = await new Promise((resolve) => db.get("SELECT * FROM settings WHERE id = 1", (err, row) => resolve(row || {})));
+
+            let proxySettings = null;
+            if (settings.proxy_enabled && settings.proxy_server) {
+                proxySettings = {
+                    server: settings.proxy_server,
+                    auth: settings.proxy_auth
+                };
+            }
+
+            const browser = await chromium.launch({
+                headless: true,
+                args: ['--no-sandbox', '--disable-setuid-sandbox'],
+                proxy: proxySettings
+            });
+
+            const page = await browser.newPage();
+            if (proxySettings && proxySettings.auth) {
+                await page.authenticate({
+                    username: proxySettings.auth.split(':')[0],
+                    password: proxySettings.auth.split(':')[1]
+                });
+            }
+
+            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await page.waitForTimeout(2000); // Wait for dynamic content
+
+            pageHtml = await page.content();
+            await browser.close();
+        } else {
+            console.log("[AI Analyze] Using provided HTML content (Extension mode)");
+        }
+
+        // Call AI
+        const result = await analyzePage(pageHtml, url, prompt);
+
+        if (!result) {
+            return res.status(500).json({ error: "AI could not identify content" });
+        }
+
+        res.json({ message: "success", data: result });
+
+    } catch (e) {
+        console.error("AI Analyze Error:", e);
         res.status(500).json({ error: e.message });
     }
 });

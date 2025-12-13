@@ -96,6 +96,11 @@ function initDb() {
                     console.log('Migrating: Adding ai_only_visual column to monitors table...');
                     db.run("ALTER TABLE monitors ADD COLUMN ai_only_visual INTEGER DEFAULT 0");
                 }
+                const hasLastHealed = rows.some(r => r.name === 'last_healed');
+                if (!hasLastHealed) {
+                    console.log('Migrating: Adding last_healed column to monitors table...');
+                    db.run("ALTER TABLE monitors ADD COLUMN last_healed DATETIME");
+                }
             } else {
                 console.error("Error checking table info:", err);
             }
@@ -138,6 +143,9 @@ function initDb() {
             proxy_enabled BOOLEAN DEFAULT 0,
             proxy_server TEXT,
             proxy_auth TEXT,
+            
+            webhook_enabled BOOLEAN DEFAULT 0,
+            webhook_url TEXT,
             
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`, (err) => {
@@ -205,6 +213,20 @@ function initDb() {
                     db.run("ALTER TABLE settings ADD COLUMN proxy_enabled BOOLEAN DEFAULT 0");
                     db.run("ALTER TABLE settings ADD COLUMN proxy_server TEXT");
                     db.run("ALTER TABLE settings ADD COLUMN proxy_auth TEXT");
+                }
+            } else {
+                console.error("Error checking settings table info:", err);
+            }
+        });
+
+        // Migration: Add Webhook columns to settings
+        db.all("PRAGMA table_info(settings)", (err, rows) => {
+            if (!err) {
+                const hasWebhook = rows.some(r => r.name === 'webhook_enabled');
+                if (!hasWebhook) {
+                    console.log('Migrating: Adding Webhook columns to settings table...');
+                    db.run("ALTER TABLE settings ADD COLUMN webhook_enabled BOOLEAN DEFAULT 0");
+                    db.run("ALTER TABLE settings ADD COLUMN webhook_url TEXT");
                 }
             } else {
                 console.error("Error checking settings table info:", err);

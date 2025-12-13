@@ -4,11 +4,13 @@
   <meta charset="UTF-8">
   <style>
     body {
-      width: 300px;
+      width: 360px;
+      min-height: 250px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       padding: 16px;
       background-color: #0d1117;
       color: #c9d1d9;
+      box-sizing: border-box;
     }
     h2 {
       margin-top: 0;
@@ -85,30 +87,85 @@
         margin: 16px 0;
     }
   </style>
+  <style>
+    /* ... existing styles ... */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .header h2 {
+      margin: 0;
+      /* Remove previous margin-bottom from h2 if any */
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .icon-btn {
+      background: none;
+      border: none;
+      color: #8b949e;
+      cursor: pointer;
+      padding: 4px;
+      margin: 0;
+      width: auto;
+    }
+    .icon-btn:hover {
+      color: #58a6ff;
+      background: none;
+    }
+    #settings-section {
+      display: none; /* Hidden by default */
+      background: #161b22;
+      padding: 12px;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+      margin-bottom: 16px;
+    }
+    .buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 12px; /* Increased gap */
+    }
+  </style>
 </head>
 <body>
-  <h2>
-      <img src="icons/icon48.png" width="20" height="20" style="border-radius: 4px;"> 
-      DeltaWatch Helper
-  </h2>
-
-  <!-- Settings Section -->
-  <div id="settings-section">
-    <div class="input-group">
-      <label for="serverUrl">Server URL</label>
-      <input type="text" id="serverUrl" placeholder="http://localhost:3000" value="http://localhost:3000">
-    </div>
-    <button id="saveSettings">Save & Connect</button>
+  <div class="header">
+    <h2>
+        <img src="icons/icon48.png" width="20" height="20" style="border-radius: 4px;"> 
+        DeltaWatch
+    </h2>
+    <button id="settings-toggle" class="icon-btn" title="Settings">
+      <svg height="20" width="20" viewBox="0 0 16 16" fill="currentColor">
+        <path fill-rule="evenodd" d="M7.429 1.525a6.593 6.593 0 011.142 0c.036.003.108.036.137.146l.253 1.014c.033.132.179.206.264.135a.732.732 0 01.196-.135l.953-.306c.094-.03.226.043.255.155l.235.918c.017.066.01.139-.02.203l-.403.856c-.053.111-.006.242.093.284a7.994 7.994 0 00.957.545c.101.045.222.022.288-.069l.542-.746a.23.23 0 01.272-.054l.87.406c.09.042.112.181.041.259l-.65.717a.276.276 0 00.003.376l.647.712c.073.08.05.22-.041.261l-.87.408a.23.23 0 01-.271-.055l-.545-.75a.286.286 0 00-.288-.068 8.006 8.006 0 00-.953.543c-.1.043-.146.175-.093.285l.4.852c.03.064.038.138.02.204l-.234.918c-.03.112-.162.185-.256.155l-.95-.306a.731.731 0 00-.46 0l-.951.306c-.094.03-.226-.043-.255-.155l-.235-.918a.232.232 0 00-.02-.203l.403-.856c.053-.111.006-.242-.093-.284a7.994 7.994 0 00-.957-.545c-.101-.045-.222-.022-.288.069l-.542.746a.23.23 0 01-.272.054l-.87-.406a.23.23 0 01-.041-.259l.65-.717a.276.276 0 00-.003-.376l-.647-.712c-.073-.08-.05-.22.041-.261l.87-.408a.23.23 0 01.271.055l.545.75a.286.286 0 00.288.068 8.006 8.006 0 00.953-.543c.1-.043.146-.175.093-.285l-.4-.852a.232.232 0 00-.02-.204l.234-.918c.03-.112.162-.185.256-.155l.95.306a.731.731 0 00.46 0l.951-.306c.094-.03.226.043.255.155l.235.918c.017.066.01.139-.02.203l-.403.856V1.525zM8 6a2 2 0 100 4 2 2 0 000-4z"></path>
+      </svg>
+    </button>
   </div>
 
-  <div class="divider"></div>
+  <!-- Settings Section (Toggleable) -->
+  <div id="settings-section">
+    <div class="input-group">
+      <label for="serverUrl" style="display:block; margin-bottom:4px;">Server URL</label>
+      <input type="text" id="serverUrl" placeholder="http://localhost:3000" value="http://localhost:3000">
+    </div>
+    <button id="saveSettings" style="background-color: #1f6feb;">Save & Connect</button>
+  </div>
 
   <!-- Picker Section -->
   <div id="picker-section">
-      <p style="font-size: 13px; margin-bottom: 12px; color: #8b949e;">
+      <p style="font-size: 13px; margin-bottom: 12px; color: #8b949e; line-height: 1.4;">
           Go to a page and click below to add a monitor.
       </p>
-      <button id="startPicker">🎯 Pick Element</button>
+      
+      <div class="input-group" style="margin-bottom: 16px;">
+         <input type="text" id="ai-prompt" placeholder="Optional: What to find? (e.g. Price)" style="font-size: 12px; padding: 8px;">
+      </div>
+
+      <div class="buttons">
+        <button id="pick-btn" style="padding: 10px;">🎯 Pick Element</button>
+        <button id="auto-detect-btn" style="background-color: #8b5cf6; padding: 10px;" title="Let AI find the best monitor config">✨ Auto-Detect</button>
+    </div>
   </div>
 
   <div id="status" class="status"></div>

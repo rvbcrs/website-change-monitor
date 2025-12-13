@@ -67,6 +67,10 @@ async function sendNotification(subject, message, htmlMessage = null, diff = nul
             promises.push(sendPush(settings, message, diff, imagePath));
         }
 
+        if (settings.webhook_enabled) {
+            promises.push(sendWebhook(settings, subject, message, diff));
+        }
+
         await Promise.allSettled(promises);
 
     } catch (error) {
@@ -164,6 +168,32 @@ async function sendPush(settings, message, diff = null, imagePath = null) {
     } catch (e) {
         console.error("Failed to send push:", e);
         throw e;
+    }
+}
+
+async function sendWebhook(settings, subject, message, diff = null) {
+    if (!settings.webhook_url) return;
+    console.log(`Sending Webhook: ${settings.webhook_url}`);
+
+    const payload = {
+        title: subject,
+        message: message,
+        diff: diff, // Optional text diff
+        timestamp: new Date().toISOString(),
+        monitor: subject.replace('Change Detected: ', '').replace('Downtime Alert: ', '') // Simple extraction
+    };
+
+    const body = JSON.stringify(payload);
+
+    try {
+        await sendRequest(settings.webhook_url, 'POST', {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(body)
+        }, body);
+        console.log("Webhook sent successfully");
+    } catch (e) {
+        console.error("Failed to send webhook:", e);
+        // Don't throw, just log. Webhooks might be flaky.
     }
 }
 

@@ -1,6 +1,6 @@
 // Editor doesn't use Layout! Removing the import which is causing issues.
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useToast } from './contexts/ToastContext';
 import { ArrowLeft, Save, Play, Image, FileText, Check, AlertCircle, MousePointerClick, Bell, Brain } from 'lucide-react';
 // import Layout from './Layout'; // REMOVED
@@ -24,37 +24,30 @@ function Editor() {
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiOnlyVisual, setAiOnlyVisual] = useState(false);
 
+  const [searchParams] = useSearchParams(); // Need to import useSearchParams
+
   useEffect(() => {
     if (id) {
-        // Fetch existing monitor
-        fetch(`${API_BASE}/monitors/${id}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.data) {
-                    const monitor = data.data;
-                    setName(monitor.name || '');
-                    setUrl(monitor.url);
-                    setProxyUrl(`${API_BASE}/proxy?url=${encodeURIComponent(monitor.url)}`);
-                    if (monitor.selector) {
-                        setSelectedElement({
-                            selector: monitor.selector,
-                            text: monitor.selector_text || ''
-                        });
-                    }
-                    setInterval(monitor.interval);
-                    setMonitorType(monitor.type || 'text');
-                    try {
-                        if (monitor.notify_config) {
-                            setNotifyConfig(typeof monitor.notify_config === 'string' ? JSON.parse(monitor.notify_config) : monitor.notify_config);
-                        }
-                    } catch (e) { console.error(e); }
-                    setAiPrompt(monitor.ai_prompt || '');
-                    setAiOnlyVisual(!!monitor.ai_only_visual);
-                }
-            })
-            .catch(err => alert('Failed to load monitor'));
+        // ... (existing fetch logic)
+    } else {
+        // Check for URL query params (from Extension Auto-Config)
+        const paramUrl = searchParams.get('url');
+        const paramName = searchParams.get('name');
+        const paramSelector = searchParams.get('selector');
+        const paramType = searchParams.get('type');
+        
+        if (paramUrl) {
+            setUrl(paramUrl);
+            setProxyUrl(`${API_BASE}/proxy?url=${encodeURIComponent(paramUrl)}`);
+        }
+        if (paramName) setName(paramName);
+        if (paramType) setMonitorType(paramType);
+        if (paramSelector) {
+            setSelectedElement({ selector: paramSelector, text: 'Auto-detected' });
+        }
     }
-  }, [id])
+  }, [id, searchParams])
+
 
 
   useEffect(() => {
@@ -244,6 +237,47 @@ function Editor() {
                      {isLoading ? (
                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                      ) : 'Go'}
+                   </button>
+                   
+                   {/* AI Magic Button */}
+                   <button
+                        onClick={async () => {
+                            if (!url) return;
+                            setIsLoading(true);
+                            // Initial load first to ensure backend can reach it
+                            setProxyUrl(`${API_BASE}/proxy?url=${encodeURIComponent(url)}`);
+                            
+                            showToast("✨ AI is analyzing page...", "info");
+                            
+                            try {
+                                const res = await fetch(`${API_BASE}/api/ai/analyze-page`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ url, prompt: aiPrompt })
+                                });
+                                const data = await res.json();
+                                if (data.data) {
+                                    const { name, selector, type } = data.data;
+                                    setName(name);
+                                    if (selector) {
+                                        setSelectedElement({ selector, text: 'Auto-detected by AI' });
+                                        setMonitorType(type || 'text');
+                                    }
+                                    showToast("✨ Configuration applied!", "success");
+                                } else {
+                                    showToast("AI couldn't find a good config.", "error");
+                                }
+                            } catch (e) {
+                                showToast("AI Analysis failed: " + e.message, "error");
+                            } finally {
+                                setIsLoading(false);
+                            }
+                        }}
+                        disabled={!url || isLoading}
+                        title="Magic Create: Auto-fill Name & Selector"
+                        className={`px-3 py-2 rounded font-medium transition flex items-center justify-center gap-2 ${!url || isLoading ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-500 text-white'}`}
+                   >
+                       ✨
                    </button>
                </div>
              </div>

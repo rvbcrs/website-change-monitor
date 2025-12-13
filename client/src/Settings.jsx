@@ -28,7 +28,9 @@ function Settings() {
         ai_base_url: '',
         proxy_enabled: false,
         proxy_server: '',
-        proxy_auth: ''
+        proxy_auth: '',
+        webhook_enabled: false,
+        webhook_url: ''
     });
 
     useEffect(() => {
@@ -44,6 +46,7 @@ function Settings() {
                         ai_enabled: !!data.data.ai_enabled,
                         ai_provider: data.data.ai_provider || 'openai',
                         proxy_enabled: !!data.data.proxy_enabled,
+                        webhook_enabled: !!data.data.webhook_enabled,
                     });
                 }
             })
@@ -258,6 +261,28 @@ function Settings() {
                                         </div>
                                     </>
                                 )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Webhook Settings */}
+                    <div className="bg-[#161b22] p-6 rounded-lg border border-gray-800 shadow-lg">
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-lg font-semibold text-white flex items-center gap-2"><Globe size={20} className="text-green-400" /> Home Assistant / Webhook</h2>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" name="webhook_enabled" checked={settings.webhook_enabled} onChange={handleChange} className="sr-only peer" />
+                                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-green-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                            </label>
+                        </div>
+                        {settings.webhook_enabled && (
+                            <div className="grid grid-cols-1 gap-4">
+                                <div className="p-3 bg-green-900/20 border border-green-900/50 rounded text-green-200 text-sm">
+                                    <p>We will send a POST request with JSON payload to this URL when a change is detected. Compatible with Home Assistant Webhook Triggers.</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-400 mb-1">Webhook URL</label>
+                                    <input type="text" name="webhook_url" value={settings.webhook_url} onChange={handleChange} className="w-full bg-[#0d1117] border border-gray-700 rounded p-2 text-white focus:border-green-500 focus:outline-none" placeholder="https://..." />
+                                </div>
                             </div>
                         )}
                     </div>

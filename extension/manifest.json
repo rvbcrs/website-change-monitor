@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "DeltaWatch Helper",
-    "version": "1.0",
+    "version": "1.5",
     "description": "Easily add website change monitors to your DeltaWatch server.",
     "permissions": [
         "activeTab",

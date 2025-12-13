@@ -153,7 +153,7 @@ async function checkSingleMonitor(monitor, context = null) {
                 // First try waiting for visible
                 await page.waitForSelector(monitor.selector, { state: 'visible', timeout: 5000 });
             } catch (e) {
-                // If not visible, try attached (exists in DOM but maybe not visible)
+                // If not visible, try attached
                 try {
                     await page.waitForSelector(monitor.selector, { state: 'attached', timeout: 3000 });
                     // If found but not visible, try scrolling to it
@@ -163,11 +163,57 @@ async function checkSingleMonitor(monitor, context = null) {
                             el.scrollIntoView({ behavior: 'instant', block: 'center' });
                         }
                     }, monitor.selector);
-                    // Wait for any animations after scroll
                     await page.waitForTimeout(1000);
-                    console.log(`[${monitorName}] Scrolled to element`);
                 } catch (e2) {
-                    console.log(`[${monitorName}] Element not found in DOM: ${monitor.selector}`);
+                    console.log(`[${monitorName}] Element not found: ${monitor.selector}. Attempting Self-Healing...`);
+
+                    // --- SELF HEALING LOGIC ---
+                    try {
+                        const { findSelector } = require('./ai');
+
+                        // Capture simplified HTML snapshot
+                        const htmlSnapshot = await page.evaluate(() => {
+                            // Clone body
+                            const clone = document.body.cloneNode(true);
+                            // Remove scripts, styles, svgs to save tokens
+                            const toRemove = clone.querySelectorAll('script, style, svg, noscript, iframe, link, meta');
+                            toRemove.forEach(el => el.remove());
+                            return clone.outerHTML;
+                        });
+
+                        const newSelector = await findSelector(htmlSnapshot, monitor.selector, monitor.last_value || '', monitor.ai_prompt);
+
+                        if (newSelector) {
+                            console.log(`[${monitorName}] 🩹 AI Healed Selector: "${newSelector}"`);
+
+                            // Verification
+                            const verified = await page.$(newSelector);
+                            if (verified) {
+                                console.log(`[${monitorName}] Verified new selector works. Updating DB...`);
+
+                                // Update Monitor in DB
+                                db.run(`UPDATE monitors SET selector = ?, last_healed = ? WHERE id = ?`, [newSelector, new Date().toISOString(), monitor.id]);
+
+                                // Update local monitor object for current run
+                                monitor.selector = newSelector;
+
+                                // Verify wait again
+                                await page.waitForSelector(monitor.selector, { state: 'attached', timeout: 5000 });
+
+                                // Notify User about Repair
+                                sendNotification(
+                                    `🩹 Monitor Repaired: ${monitorName}`,
+                                    `The selector was broken but AI fixed it.\nOld: ${monitor.selector}\nNew: ${newSelector}`,
+                                    null, null, null
+                                );
+                            } else {
+                                console.log(`[${monitorName}] AI suggested "${newSelector}" but it was not found on page.`);
+                            }
+                        }
+                    } catch (healErr) {
+                        console.error(`[${monitorName}] Self-Healing Failed:`, healErr);
+                    }
+                    // --- END SELF HEALING ---
                 }
             }
         }
