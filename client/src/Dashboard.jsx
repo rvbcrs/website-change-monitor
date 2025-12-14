@@ -35,6 +35,7 @@ const Dashboard = () => {
   const [checkingMonitors, setCheckingMonitors] = useState(new Set())
   const [selectedTag, setSelectedTag] = useState(null) // null = show all
   const [showStats, setShowStats] = useState(true)
+  const [groupBy, setGroupBy] = useState('none') // 'none' | 'type'
   const navigate = useNavigate()
   const { showToast } = useToast()
   const { confirm } = useDialog()
@@ -183,6 +184,21 @@ const Dashboard = () => {
                 >
                     <Layout size={18} />
                 </button>
+                <div className="h-6 w-px bg-gray-800 mx-2"></div>
+                <div className="flex bg-gray-800 rounded-lg p-0.5">
+                    <button
+                        onClick={() => setGroupBy('none')}
+                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${groupBy === 'none' ? 'bg-[#161b22] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}
+                    >
+                        Lijst
+                    </button>
+                    <button
+                        onClick={() => setGroupBy('type')}
+                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${groupBy === 'type' ? 'bg-[#161b22] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}
+                    >
+                        Groep
+                    </button>
+                </div>
             </div>
             
             <Link 
@@ -240,158 +256,197 @@ const Dashboard = () => {
                     </div>
                 )}
 
-                {filteredMonitors.map(monitor => (
-                    <Link 
-                        to={`/monitor/${monitor.id}`}
-                        key={monitor.id} 
-                        className="bg-[#161b22] border border-gray-800 hover:border-gray-600 rounded-lg p-4 flex flex-col md:flex-row md:items-center justify-between transition-colors group block"
-                    >
-                        <div className="flex items-start gap-4 flex-1 min-w-0 w-full">
-                            {/* Screenshot Thumbnail - Only for Visual Type */}
-                             {monitor.type === 'visual' && (
-                                 <div 
-                                    className="w-24 h-16 bg-gray-800 rounded border border-gray-700 overflow-hidden flex-shrink-0 relative group/img cursor-pointer transition-opacity hover:opacity-80" 
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        if (monitor.last_screenshot) {
-                                            window.open(`${API_BASE}/static/screenshots/${monitor.last_screenshot.split('/').pop()}`, '_blank');
-                                        }
-                                    }}
-                                 >
-                                     {monitor.last_screenshot ? (
-                                         <img 
-                                            src={`${API_BASE}/static/screenshots/${monitor.last_screenshot.split('/').pop()}`} 
-                                            alt="Monitor" 
-                                            className="w-full h-full object-cover"
-                                         />
-                                     ) : (
-                                         <div className="flex items-center justify-center w-full h-full text-gray-600">
-                                             <div className="bg-gray-700 w-8 h-8 rounded-full flex items-center justify-center">
-                                                 <span className="text-xs">No Img</span>
-                                             </div>
-                                         </div>
-                                     )}
-                                 </div>
-                             )}
-
-                             <div className="min-w-0 flex flex-col gap-1 flex-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider border ${
-                                        monitor.type === 'visual' ? 'bg-blue-900/30 text-blue-400 border-blue-900' : 
-                                        (monitor.selector === 'body' ? 'bg-purple-900/30 text-purple-400 border-purple-900' : 'bg-green-900/30 text-green-400 border-green-900')
-                                    }`}>
-                                        {monitor.type === 'visual' ? 'VISUAL' : (monitor.selector === 'body' ? 'FULL PAGE' : 'TEXT')}
-                                    </span>
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider border bg-red-500/20 text-red-300 border-red-500/30">
-                                        {monitor.interval}
-                                    </span>
-                                    {/* Uptime Badge */}
-                                    {monitor.history && monitor.history.length > 0 && (() => {
-                                        const historyWithStatus = monitor.history.filter(h => h.http_status !== null);
-                                        if (historyWithStatus.length === 0) return null;
-                                        const upCount = historyWithStatus.filter(h => h.http_status < 400).length;
-                                        const uptime = Math.round((upCount / historyWithStatus.length) * 100);
-                                        const colorClass = uptime >= 99 ? 'bg-green-900/30 text-green-400 border-green-900' :
-                                                          uptime >= 95 ? 'bg-yellow-900/30 text-yellow-400 border-yellow-900' :
-                                                          'bg-red-900/30 text-red-400 border-red-900';
-                                        return (
-                                            <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider border ${colorClass}`}>
-                                                {uptime}% UP
-                                            </span>
-                                        );
-                                    })()}
-                                    <h3 className="text-white font-bold text-lg truncate max-w-[200px] md:max-w-xs flex items-center gap-2" title={monitor.name || monitor.url}>
-                                        {monitor.name || (monitor.url ? new URL(monitor.url).hostname : 'Untitled')}
-                                        {monitor.unread_count > 0 && (
-                                            <span className="w-5 h-5 text-[10px] font-bold rounded-full bg-blue-500 text-white flex items-center justify-center flex-shrink-0">
-                                                {monitor.unread_count > 9 ? '9+' : monitor.unread_count}
-                                            </span>
-                                        )}
-                                    </h3>
-                                </div>
-                                
-                                {monitor.type === 'text' && (
-                                    <p className="text-gray-400 text-sm truncate" title={monitor.selector_text}>
-                                        {monitor.selector_text || 'No selector text'}
-                                    </p>
-                                )}
-                                <p className="text-gray-500 text-xs truncate font-mono">
-                                    {monitor.url}
-                                </p>
-                             </div>
-                        </div>
-
-                        <div className="flex items-center justify-between md:justify-end gap-4 md:gap-6 mt-4 md:mt-0 w-full md:w-auto border-t md:border-t-0 border-gray-800 pt-3 md:pt-0">
-                                <div className="text-left md:text-right">
-                                <div className="flex items-center gap-1 justify-start md:justify-end mb-1">
-                                    {/* History bars */}
-                                    <div className="flex gap-[2px]">
-                                        {[...Array(20)].map((_, i) => {
-                                            const historyLength = monitor.history ? monitor.history.length : 0;
-                                            const offset = 20 - historyLength;
-                                            const historyIndex = i - offset;
-                                            const record = historyIndex >= 0 ? monitor.history[historyIndex] : null;
-
-                                            let colorClass = 'bg-gray-800'; // Empty slot
-                                            if (record) {
-                                                if (record.status === 'unchanged') colorClass = 'bg-green-500';
-                                                else if (record.status === 'changed') colorClass = 'bg-yellow-500';
-                                                else if (record.status === 'error') colorClass = 'bg-red-500';
+                {(() => {
+                    const renderMonitorCard = (monitor) => (
+                        <Link 
+                            to={`/monitor/${monitor.id}`}
+                            key={monitor.id} 
+                            className="bg-[#161b22] border border-gray-800 hover:border-gray-600 rounded-lg p-4 flex flex-col md:flex-row md:items-center justify-between transition-colors group block mb-2"
+                        >
+                            <div className="flex items-start gap-4 flex-1 min-w-0 w-full">
+                                {/* Screenshot Thumbnail - Only for Visual Type */}
+                                 {monitor.type === 'visual' && (
+                                     <div 
+                                        className="w-24 h-16 bg-gray-800 rounded border border-gray-700 overflow-hidden flex-shrink-0 relative group/img cursor-pointer transition-opacity hover:opacity-80" 
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            if (monitor.last_screenshot) {
+                                                window.open(`${API_BASE}/static/screenshots/${monitor.last_screenshot.split('/').pop()}`, '_blank');
                                             }
+                                        }}
+                                     >
+                                         {monitor.last_screenshot ? (
+                                             <img 
+                                                src={`${API_BASE}/static/screenshots/${monitor.last_screenshot.split('/').pop()}`} 
+                                                alt="Monitor" 
+                                                className="w-full h-full object-cover"
+                                             />
+                                         ) : (
+                                             <div className="flex items-center justify-center w-full h-full text-gray-600">
+                                                 <div className="bg-gray-700 w-8 h-8 rounded-full flex items-center justify-center">
+                                                     <span className="text-xs">No Img</span>
+                                                 </div>
+                                             </div>
+                                         )}
+                                     </div>
+                                 )}
 
+                                 <div className="min-w-0 flex flex-col gap-1 flex-1">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider border ${
+                                            monitor.type === 'visual' ? 'bg-blue-900/30 text-blue-400 border-blue-900' : 
+                                            (monitor.selector === 'body' ? 'bg-purple-900/30 text-purple-400 border-purple-900' : 'bg-green-900/30 text-green-400 border-green-900')
+                                        }`}>
+                                            {monitor.type === 'visual' ? 'VISUAL' : (monitor.selector === 'body' ? 'FULL PAGE' : 'TEXT')}
+                                        </span>
+                                        <span className="px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider border bg-red-500/20 text-red-300 border-red-500/30">
+                                            {monitor.interval}
+                                        </span>
+                                        {/* Uptime Badge */}
+                                        {monitor.history && monitor.history.length > 0 && (() => {
+                                            const historyWithStatus = monitor.history.filter(h => h.http_status !== null);
+                                            if (historyWithStatus.length === 0) return null;
+                                            const upCount = historyWithStatus.filter(h => h.http_status < 400).length;
+                                            const uptime = Math.round((upCount / historyWithStatus.length) * 100);
+                                            const colorClass = uptime >= 99 ? 'bg-green-900/30 text-green-400 border-green-900' :
+                                                              uptime >= 95 ? 'bg-yellow-900/30 text-yellow-400 border-yellow-900' :
+                                                              'bg-red-900/30 text-red-400 border-red-900';
                                             return (
-                                                <div 
-                                                    key={i} 
-                                                    className={`w-1 h-4 rounded-sm ${colorClass} ${record ? 'cursor-pointer hover:opacity-75 transition-opacity' : ''}`}
-                                                    title={record ? `${new Date(formatDate(record.created_at)).toLocaleString()} - ${record.status}` : 'No Data'}
-                                                    onClick={record ? (e) => {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        navigate(`/monitor/${monitor.id}#history-${record.id}`);
-                                                    } : undefined}
-                                                />
+                                                <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider border ${colorClass}`}>
+                                                    {uptime}% UP
+                                                </span>
                                             );
-                                        })}
+                                        })()}
+                                        <h3 className="text-white font-bold text-lg truncate max-w-[200px] md:max-w-xs flex items-center gap-2" title={monitor.name || monitor.url}>
+                                            {monitor.name || (monitor.url ? new URL(monitor.url).hostname : 'Untitled')}
+                                            {monitor.unread_count > 0 && (
+                                                <span className="w-5 h-5 text-[10px] font-bold rounded-full bg-blue-500 text-white flex items-center justify-center flex-shrink-0">
+                                                    {monitor.unread_count > 9 ? '9+' : monitor.unread_count}
+                                                </span>
+                                            )}
+                                        </h3>
+                                    </div>
+                                    
+                                    {monitor.type === 'text' && (
+                                        <p className="text-gray-400 text-sm truncate" title={monitor.selector_text}>
+                                            {monitor.selector_text || 'No selector text'}
+                                        </p>
+                                    )}
+                                    <p className="text-gray-500 text-xs truncate font-mono">
+                                        {monitor.url}
+                                    </p>
+                                 </div>
+                            </div>
+
+                            <div className="flex items-center justify-between md:justify-end gap-4 md:gap-6 mt-4 md:mt-0 w-full md:w-auto border-t md:border-t-0 border-gray-800 pt-3 md:pt-0">
+                                    <div className="text-left md:text-right">
+                                    <div className="flex items-center gap-1 justify-start md:justify-end mb-1">
+                                        {/* History bars */}
+                                        <div className="flex gap-[2px]">
+                                            {[...Array(20)].map((_, i) => {
+                                                const historyLength = monitor.history ? monitor.history.length : 0;
+                                                const offset = 20 - historyLength;
+                                                const historyIndex = i - offset;
+                                                const record = historyIndex >= 0 ? monitor.history[historyIndex] : null;
+
+                                                let colorClass = 'bg-gray-800'; // Empty slot
+                                                if (record) {
+                                                    if (record.status === 'unchanged') colorClass = 'bg-green-500';
+                                                    else if (record.status === 'changed') colorClass = 'bg-yellow-500';
+                                                    else if (record.status === 'error') colorClass = 'bg-red-500';
+                                                }
+
+                                                return (
+                                                    <div 
+                                                        key={i} 
+                                                        className={`w-1 h-4 rounded-sm ${colorClass} ${record ? 'cursor-pointer hover:opacity-75 transition-opacity' : ''}`}
+                                                        title={record ? `${new Date(formatDate(record.created_at)).toLocaleString()} - ${record.status}` : 'No Data'}
+                                                        onClick={record ? (e) => {
+                                                            e.preventDefault();
+                                                            e.stopPropagation();
+                                                            navigate(`/monitor/${monitor.id}#history-${record.id}`);
+                                                        } : undefined}
+                                                    />
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    <div className="text-xs text-gray-400 mt-2 flex items-center gap-4 justify-start md:justify-end">
+                                        <span className="flex items-center gap-1" title={formatDate(monitor.last_check) ? new Date(formatDate(monitor.last_check)).toLocaleString() : 'Never'}>
+                                            <div className={`w-2 h-2 rounded-full ${monitor.active ? 'bg-green-500' : 'bg-gray-500'}`}></div>
+                                            <TimeAgo date={monitor.last_check} />
+                                        </span>
                                     </div>
                                 </div>
 
-                                <div className="text-xs text-gray-400 mt-2 flex items-center gap-4 justify-start md:justify-end">
-                                    <span className="flex items-center gap-1" title={formatDate(monitor.last_check) ? new Date(formatDate(monitor.last_check)).toLocaleString() : 'Never'}>
-                                        <div className={`w-2 h-2 rounded-full ${monitor.active ? 'bg-green-500' : 'bg-gray-500'}`}></div>
-                                        <TimeAgo date={monitor.last_check} />
-                                    </span>
-                                </div>
+                                 <div className="flex gap-2"> {/* Removed opacity-0 group-hover:opacity-100 logic for mobile usage and simpler UI */}
+                                    <button 
+                                        onClick={(e) => handleCheck(monitor, e)} 
+                                        disabled={checkingMonitors.has(monitor.id)}
+                                        className={`p-2 text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded transition-colors ${checkingMonitors.has(monitor.id) ? 'cursor-not-allowed opacity-50' : ''}`} 
+                                        title="Check Now"
+                                    >
+                                        <RefreshCw size={16} className={checkingMonitors.has(monitor.id) ? 'animate-spin' : ''} />
+                                    </button>
+                                    <button onClick={(e) => handleEdit(monitor, e)} className="p-2 text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded transition-colors" title="Edit">
+                                        <Edit size={16} />
+                                    </button>
+
+
+                                    <button onClick={(e) => handleDelete(monitor.id, e)} className="p-2 text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700 rounded transition-colors" title="Delete">
+                                        <Trash2 size={16} />
+                                    </button>
+                                    <button 
+                                        onClick={(e) => handleToggleStatus(monitor, e)} 
+                                        className={`p-2 rounded transition-colors ${!monitor.active ? 'text-green-400 bg-green-900/30 hover:bg-green-900/50 border border-green-700/50' : 'text-orange-400 bg-orange-900/20 hover:bg-orange-900/30 hover:text-orange-300'}`}
+                                        title={!monitor.active ? "Resume" : "Pause"}
+                                    >
+                                        {!monitor.active ? <Play size={16} fill="currentColor" /> : <Pause size={16} />}
+                                    </button>
+                                 </div>
                             </div>
+                        </Link>
+                    );
 
-                             <div className="flex gap-2"> {/* Removed opacity-0 group-hover:opacity-100 logic for mobile usage and simpler UI */}
-                                <button 
-                                    onClick={(e) => handleCheck(monitor, e)} 
-                                    disabled={checkingMonitors.has(monitor.id)}
-                                    className={`p-2 text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded transition-colors ${checkingMonitors.has(monitor.id) ? 'cursor-not-allowed opacity-50' : ''}`} 
-                                    title="Check Now"
-                                >
-                                    <RefreshCw size={16} className={checkingMonitors.has(monitor.id) ? 'animate-spin' : ''} />
-                                </button>
-                                <button onClick={(e) => handleEdit(monitor, e)} className="p-2 text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 rounded transition-colors" title="Edit">
-                                    <Edit size={16} />
-                                </button>
+                    if (groupBy === 'type') {
+                        const visual = filteredMonitors.filter(m => m.type === 'visual');
+                        const text = filteredMonitors.filter(m => m.type === 'text' && m.selector !== 'body');
+                        const fullPage = filteredMonitors.filter(m => m.selector === 'body');
 
-
-                                <button onClick={(e) => handleDelete(monitor.id, e)} className="p-2 text-gray-400 hover:text-red-400 bg-gray-800 hover:bg-gray-700 rounded transition-colors" title="Delete">
-                                    <Trash2 size={16} />
-                                </button>
-                                <button 
-                                    onClick={(e) => handleToggleStatus(monitor, e)} 
-                                    className={`p-2 rounded transition-colors ${!monitor.active ? 'text-green-400 bg-green-900/30 hover:bg-green-900/50 border border-green-700/50' : 'text-orange-400 bg-orange-900/20 hover:bg-orange-900/30 hover:text-orange-300'}`}
-                                    title={!monitor.active ? "Resume" : "Pause"}
-                                >
-                                    {!monitor.active ? <Play size={16} fill="currentColor" /> : <Pause size={16} />}
-                                </button>
-                             </div>
-                        </div>
-                    </Link>
-                ))}
+                        return (
+                            <>
+                                {visual.length > 0 && (
+                                    <div className="mb-6">
+                                        <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2">
+                                            <span className="w-2 h-2 rounded-full bg-blue-500"></span> Visual Monitors
+                                        </h3>
+                                        {visual.map(renderMonitorCard)}
+                                    </div>
+                                )}
+                                {text.length > 0 && (
+                                    <div className="mb-6">
+                                        <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2">
+                                            <span className="w-2 h-2 rounded-full bg-green-500"></span> Text Monitors
+                                        </h3>
+                                        {text.map(renderMonitorCard)}
+                                    </div>
+                                )}
+                                {fullPage.length > 0 && (
+                                    <div className="mb-6">
+                                        <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2">
+                                            <span className="w-2 h-2 rounded-full bg-purple-500"></span> Full Page Monitors
+                                        </h3>
+                                        {fullPage.map(renderMonitorCard)}
+                                    </div>
+                                )}
+                            </>
+                        );
+                    } else {
+                        return filteredMonitors.map(renderMonitorCard);
+                    }
+                })()}
             </div>
         )}
         
