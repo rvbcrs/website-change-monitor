@@ -54,20 +54,30 @@ function getSettings() {
 }
 
 async function sendNotification(subject, message, htmlMessage = null, diff = null, imagePath = null) {
+    let options = {};
+    // Handle overload: if diff is an object and not null, treat as options (assuming diff string is never an object)
+    if (diff && typeof diff === 'object' && !diff.length) { // Check !length to avoid String object edge cases
+        options = diff;
+        diff = null;
+    }
+
     try {
         const settings = await getSettings();
 
         const promises = [];
 
-        if (settings.email_enabled) {
+        // Check explicit type filter or default to all enabled
+        const targetType = options.type;
+
+        if (settings.email_enabled && (!targetType || targetType === 'email')) {
             promises.push(sendEmail(settings, subject, message, htmlMessage));
         }
 
-        if (settings.push_enabled) {
+        if (settings.push_enabled && (!targetType || targetType === 'push')) {
             promises.push(sendPush(settings, message, diff, imagePath));
         }
 
-        if (settings.webhook_enabled) {
+        if (settings.webhook_enabled && (!targetType || targetType === 'webhook')) {
             promises.push(sendWebhook(settings, subject, message, diff));
         }
 

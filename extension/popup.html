@@ -143,13 +143,36 @@
     </button>
   </div>
 
+  <!-- Login Section -->
+  <div id="login-section" style="display: none;">
+      <div style="text-align: center; margin-bottom: 16px;">
+          <p style="font-size: 13px; color: #8b949e;">Please login to your DeltaWatch server.</p>
+      </div>
+      <div class="input-group">
+          <label for="loginEmail">Email</label>
+          <input type="email" id="loginEmail" placeholder="admin@example.com">
+      </div>
+      <div class="input-group">
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" placeholder="password">
+      </div>
+      <button id="loginBtn" style="background-color: #1f6feb;">Login</button>
+      <div class="divider"></div>
+      <div style="text-align: center;">
+          <button id="showSettingsFromLogin" class="secondary" style="width: auto; padding: 4px 12px; font-size: 11px;">Configure Server URL</button>
+      </div>
+  </div>
+
   <!-- Settings Section (Toggleable) -->
   <div id="settings-section">
     <div class="input-group">
       <label for="serverUrl" style="display:block; margin-bottom:4px;">Server URL</label>
       <input type="text" id="serverUrl" placeholder="http://localhost:3000" value="http://localhost:3000">
     </div>
-    <button id="saveSettings" style="background-color: #1f6feb;">Save & Connect</button>
+    <div class="buttons">
+        <button id="saveSettings" style="background-color: #1f6feb;">Save & Connect</button>
+        <button id="logoutBtn" class="secondary">Logout</button>
+    </div>
   </div>
 
   <!-- Picker Section -->

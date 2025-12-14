@@ -8,7 +8,7 @@ function StatusPage() {
 
     const fetchStatus = () => {
         setLoading(true);
-        fetch('http://localhost:3000/status')
+        fetch('/status')
             .then(res => res.json())
             .then(data => {
                 setMonitors(data.data || []);

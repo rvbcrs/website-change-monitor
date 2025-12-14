@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Settings, Radar, Menu, X } from 'lucide-react'
+import { LayoutDashboard, Settings, Radar, Menu, X, LogOut, User } from 'lucide-react'
+import { useAuth } from './contexts/AuthContext'
 
 function Layout({ children }) {
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const { user, logout } = useAuth();
 
   // Close menu when route changes
   useEffect(() => {
@@ -14,6 +16,7 @@ function Layout({ children }) {
   const navItems = [
     { icon: <LayoutDashboard size={20} />, label: 'Monitoring', path: '/' },
     { icon: <Settings size={20} />, label: 'Settings', path: '/settings' },
+    { icon: <User size={20} />, label: 'Users', path: '/users', adminOnly: true },
   ];
 
   return (
@@ -63,9 +66,22 @@ function Layout({ children }) {
           </button>
         </div>
 
+        {/* User Info (if logged in) */}
+        {user && (
+            <div className="px-4 py-4 border-b border-gray-800 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-blue-900/50 flex items-center justify-center text-blue-400">
+                    <User size={16} />
+                </div>
+                <div className="flex-1 overflow-hidden">
+                    <p className="text-sm font-medium text-white truncate">{user.email}</p>
+                    <p className="text-xs text-gray-500 uppercase">{user.role}</p>
+                </div>
+            </div>
+        )}
+
         {/* Navigation */}
         <nav className="flex-1 py-4 px-3 space-y-1">
-          {navItems.map((item) => (
+          {navItems.filter(item => !item.adminOnly || (user && user.role === 'admin')).map((item) => (
             <Link 
               key={item.label} 
               to={item.path}
@@ -82,8 +98,26 @@ function Layout({ children }) {
         </nav>
 
         {/* Footer */}
-        <div className="p-4 border-t border-gray-800 text-center text-xs text-gray-500">
-          DeltaWatch v1.0
+        <div className="p-4 border-t border-gray-800 space-y-4">
+            {user ? (
+                 <button 
+                    onClick={logout}
+                    className="w-full flex items-center justify-center gap-2 bg-red-900/20 hover:bg-red-900/40 text-red-400 px-4 py-2 rounded-lg transition-colors border border-red-900/50"
+                 >
+                    <LogOut size={16} /> Logout
+                 </button>
+            ) : (
+                <Link 
+                    to="/login"
+                    className="w-full flex items-center justify-center gap-2 bg-[#21262d] hover:bg-[#30363d] text-white px-4 py-2 rounded-lg transition-colors border border-gray-700"
+                >
+                    Login
+                </Link>
+            )}
+           
+           <div className="text-center text-xs text-gray-500 pt-2">
+             DeltaWatch v1.0
+           </div>
         </div>
       </div>
 

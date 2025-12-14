@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, ExternalLink, RefreshCw, Image, FileText, AlertTriangle, Trash2, Play, Download } from 'lucide-react';
+import { ArrowLeft, ExternalLink, RefreshCw, Image, FileText, AlertTriangle, Trash2, Play, Download, Filter } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as Diff from 'diff';
 import { useToast } from './contexts/ToastContext';
 import { useDialog } from './contexts/DialogContext';
+import { useAuth } from './contexts/AuthContext';
 
 function MonitorDetails() {
     const { id } = useParams();
     const navigate = useNavigate();
     const location = useLocation();
-    const API_BASE = import.meta.env.DEV ? 'http://localhost:3000' : '';
+    const API_BASE = '';
     const [monitor, setMonitor] = useState(null);
     const [loading, setLoading] = useState(true);
     const [isChecking, setIsChecking] = useState(false);
@@ -18,11 +19,13 @@ function MonitorDetails() {
     const { showToast } = useToast();
     const { confirm, prompt } = useDialog();
     const [allTags, setAllTags] = useState([]);
+    const [historyFilter, setHistoryFilter] = useState('all'); // 'all', 'changed', 'unchanged', 'error'
+    const { authFetch } = useAuth();
 
     const fetchMonitor = async (silent = false) => {
         if (!silent) setLoading(true);
         try {
-            const res = await fetch(`${API_BASE}/monitors?t=${Date.now()}`);
+            const res = await authFetch(`${API_BASE}/monitors?t=${Date.now()}`);
             if (res.ok) {
                  const data = await res.json();
                  if (data.message === 'success') {
@@ -81,7 +84,7 @@ function MonitorDetails() {
     // Mark monitor as read when viewing details
     useEffect(() => {
         if (monitor && monitor.unread_count > 0) {
-            fetch(`${API_BASE}/monitors/${id}/read`, { method: 'POST' })
+            authFetch(`${API_BASE}/monitors/${id}/read`, { method: 'POST' })
                 .catch(err => console.error('Failed to mark as read:', err));
         }
     }, [monitor?.id]);
@@ -107,7 +110,7 @@ function MonitorDetails() {
         
         console.log('Details: Sending request...');
         try {
-            const res = await fetch(`${API_BASE}/monitors/${id}/check`, { method: 'POST' });
+            const res = await authFetch(`${API_BASE}/monitors/${id}/check`, { method: 'POST' });
             console.log('Details: Response status:', res.status);
             if (res.ok) {
                  showToast('Check completed successfully', 'success');
@@ -134,7 +137,7 @@ function MonitorDetails() {
         }
         
         try {
-            const res = await fetch(`${API_BASE}/monitors/${id}/history/${historyId}`, {
+            const res = await authFetch(`${API_BASE}/monitors/${id}/history/${historyId}`, {
                 method: 'DELETE',
             });
             if (res.ok) {
@@ -152,6 +155,28 @@ function MonitorDetails() {
             showToast("Network error: " + e.message, 'error');
         }
     };
+    
+    const handleDownload = async (format) => {
+        try {
+            const res = await authFetch(`${API_BASE}/monitors/${id}/export/${format}`);
+            if (res.ok) {
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `monitor-${id}.${format}`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            } else {
+                showToast('Export failed', 'error');
+            }
+        } catch (e) {
+            console.error(e);
+            showToast('Export error', 'error');
+        }
+    }
 
     if (loading) return <div className="p-8 text-center text-gray-500">Loading details...</div>;
     if (!monitor) return <div className="p-8 text-center text-red-500">Monitor not found</div>;
@@ -187,7 +212,7 @@ function MonitorDetails() {
                                         className="px-2 py-0.5 rounded-full text-xs bg-purple-900/30 text-purple-300 border border-purple-800 flex items-center gap-1 cursor-pointer hover:bg-purple-900/50"
                                         onClick={async () => {
                                             const newTags = tags.filter(t => t !== tag);
-                                            await fetch(`${API_BASE}/monitors/${id}/tags`, {
+                                            await authFetch(`${API_BASE}/monitors/${id}/tags`, {
                                                 method: 'PATCH',
                                                 headers: { 'Content-Type': 'application/json' },
                                                 body: JSON.stringify({ tags: newTags })
@@ -216,7 +241,7 @@ function MonitorDetails() {
                                 if (newTag) {
                                     try {
                                         if (!currentTags.includes(newTag)) {
-                                            await fetch(`${API_BASE}/monitors/${id}/tags`, {
+                                            await authFetch(`${API_BASE}/monitors/${id}/tags`, {
                                                 method: 'PATCH',
                                                 headers: { 'Content-Type': 'application/json' },
                                                 body: JSON.stringify({ tags: [...currentTags, newTag] })
@@ -254,20 +279,18 @@ function MonitorDetails() {
                         <Download size={16} /> Export
                     </button>
                     <div className="absolute right-0 mt-1 w-40 bg-[#161b22] border border-gray-700 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
-                        <a 
-                            href={`${API_BASE}/monitors/${id}/export/csv`}
-                            className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-white rounded-t-lg"
-                            download
+                        <button 
+                            onClick={() => handleDownload('csv')}
+                            className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-white rounded-t-lg"
                         >
                             📊 Export as CSV
-                        </a>
-                        <a 
-                            href={`${API_BASE}/monitors/${id}/export/json`}
-                            className="block px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-white rounded-b-lg"
-                            download
+                        </button>
+                        <button 
+                            onClick={() => handleDownload('json')}
+                            className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-white rounded-b-lg"
                         >
                             📋 Export as JSON
-                        </a>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -333,64 +356,65 @@ function MonitorDetails() {
                                                 {kw.mode || 'appears'}
                                             </span>
                                             <button
-                                                onClick={async () => {
-                                                    const newKeywords = keywords.filter((_, i) => i !== idx);
-                                                    await fetch(`${API_BASE}/monitors/${id}/keywords`, {
-                                                        method: 'PATCH',
-                                                        headers: { 'Content-Type': 'application/json' },
-                                                        body: JSON.stringify({ keywords: newKeywords })
-                                                    });
-                                                    fetchMonitor(true);
-                                                }}
-                                                className="text-gray-500 hover:text-red-400 transition-colors"
-                                                title="Remove"
-                                            >
-                                                ×
-                                            </button>
-                                        </div>
-                                    ));
-                                } catch { return null; }
-                            })()}
-                        </div>
+                                            key={idx}
+                                            onClick={async () => {
+                                                const newKeywords = keywords.filter((_, i) => i !== idx);
+                                                await authFetch(`${API_BASE}/monitors/${id}/keywords`, {
+                                                    method: 'PATCH',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({ keywords: newKeywords })
+                                                });
+                                                fetchMonitor(true);
+                                            }}
+                                            className="text-gray-500 hover:text-red-400 transition-colors"
+                                            title="Remove"
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                ));
+                            } catch { return null; }
+                        })()}
+                    </div>
 
-                        {/* Add Keyword Button */}
-                        <button
-                            className="w-full py-2 border border-dashed border-gray-700 rounded-lg text-gray-500 hover:text-white hover:border-gray-600 transition-colors text-sm"
-                            onClick={async () => {
-                                const text = await prompt({
-                                    title: 'Add Keyword Alert',
-                                    message: 'Enter a keyword to watch for.',
-                                    placeholder: 'e.g. "in stock", "sold out", "error"...',
-                                    confirmText: 'Add'
+                    {/* Add Keyword Button */}
+                    <button
+                        className="w-full py-2 border border-dashed border-gray-700 rounded-lg text-gray-500 hover:text-white hover:border-gray-600 transition-colors text-sm"
+                        onClick={async () => {
+                            const text = await prompt({
+                                title: 'Add Keyword Alert',
+                                message: 'Enter a keyword to watch for.',
+                                placeholder: 'e.g. "in stock", "sold out", "error"...',
+                                confirmText: 'Add'
+                            });
+                            if (text) {
+                                const mode = await prompt({
+                                    title: 'Alert Mode',
+                                    message: 'When should you be alerted?',
+                                    placeholder: 'appears, disappears, or any',
+                                    defaultValue: 'appears',
+                                    confirmText: 'Save',
+                                    suggestions: ['appears', 'disappears', 'any']
                                 });
-                                if (text) {
-                                    const mode = await prompt({
-                                        title: 'Alert Mode',
-                                        message: 'When should you be alerted?',
-                                        placeholder: 'appears, disappears, or any',
-                                        defaultValue: 'appears',
-                                        confirmText: 'Save',
-                                        suggestions: ['appears', 'disappears', 'any']
-                                    });
-                                    if (mode) {
-                                        try {
-                                            const currentKeywords = JSON.parse(monitor.keywords || '[]');
-                                            await fetch(`${API_BASE}/monitors/${id}/keywords`, {
-                                                method: 'PATCH',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ keywords: [...currentKeywords, { text, mode }] })
-                                            });
-                                            fetchMonitor(true);
-                                            showToast(`Keyword "${text}" added`, 'success');
-                                        } catch (e) {
-                                            console.error('Failed to add keyword:', e);
-                                        }
+                                if (mode) {
+                                    try {
+                                        const currentKeywords = JSON.parse(monitor.keywords || '[]');
+                                        await authFetch(`${API_BASE}/monitors/${id}/keywords`, {
+                                            method: 'PATCH',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ keywords: [...currentKeywords, { text, mode }] })
+                                        });
+                                        fetchMonitor(true);
+                                        showToast(`Keyword "${text}" added`, 'success');
+                                    } catch (e) {
+                                        console.error('Failed to add keyword:', e);
                                     }
                                 }
-                            }}
-                        >
-                            + Add Keyword
-                        </button>
+                            }
+                        }}
+                    >
+                        + Add Keyword
+                    </button>
                     </div>
                 </div>
 
@@ -438,8 +462,31 @@ function MonitorDetails() {
                 <div className="lg:col-span-3 bg-[#161b22] px-6 py-6 rounded-lg border border-gray-800">
                     <div className="flex justify-between items-center mb-6 border-b border-gray-800 pb-4">
                         <h3 className="text-white font-bold text-lg">History Timeline</h3>
-                        <div className="text-sm text-gray-400">
-                           {monitor.history?.length || 0} checks recorded
+                        <div className="flex items-center gap-2">
+                            <button 
+                                onClick={() => setHistoryFilter('all')}
+                                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors border ${historyFilter === 'all' ? 'bg-blue-600 text-white border-blue-500' : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700'}`}
+                            >
+                                All
+                            </button>
+                            <button 
+                                onClick={() => setHistoryFilter('changed')}
+                                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors border ${historyFilter === 'changed' ? 'bg-yellow-900/50 text-yellow-400 border-yellow-700' : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700'}`}
+                            >
+                                Changed
+                            </button>
+                             <button 
+                                onClick={() => setHistoryFilter('unchanged')}
+                                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors border ${historyFilter === 'unchanged' ? 'bg-green-900/50 text-green-400 border-green-700' : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700'}`}
+                            >
+                                Unchanged
+                            </button>
+                             <button 
+                                onClick={() => setHistoryFilter('error')}
+                                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors border ${historyFilter === 'error' ? 'bg-red-900/50 text-red-400 border-red-700' : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700'}`}
+                            >
+                                Error
+                            </button>
                         </div>
                     </div>
 
@@ -448,7 +495,13 @@ function MonitorDetails() {
                         <div className="absolute left-[11px] top-4 bottom-4 w-0.5 bg-gray-700"></div>
 
                         <div className="space-y-0">
-                            {[...monitor.history].reverse().map((record, i) => {
+                            {[...monitor.history].reverse().filter(item => {
+                                if (historyFilter === 'all') return true;
+                                if (historyFilter === 'changed') return item.status === 'changed';
+                                if (historyFilter === 'error') return item.status === 'error';
+                                if (historyFilter === 'unchanged') return item.status !== 'changed' && item.status !== 'error';
+                                return true;
+                            }).map((record, i) => {
                                  const date = new Date(record.created_at);
                                  const isError = record.status === 'error';
                                  const isChanged = record.status === 'changed';

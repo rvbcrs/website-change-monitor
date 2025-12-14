@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Save, Bell, Mail, Smartphone, Globe, ArrowLeft, Download, Upload, Eye, EyeOff, Brain, Shield, Search } from 'lucide-react';
+import { Trash2, Users, Save, Bell, Mail, Smartphone, Globe, ArrowLeft, Download, Upload, Eye, EyeOff, Brain, Shield, Search } from 'lucide-react';
 import { useToast } from './contexts/ToastContext';
 import { useNavigate } from 'react-router-dom'
-
+import { useAuth } from './contexts/AuthContext';
 function Settings() {
-    const API_BASE = import.meta.env.DEV ? 'http://localhost:3000' : '';
+    const API_BASE = '';
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(true);
-    const [showPassword, setShowPassword] = useState(false);
     const { showToast } = useToast();
+    const { authFetch, user } = useAuth(); // Ensure user is destructured
+
     const [settings, setSettings] = useState({
         email_enabled: false,
         email_host: '',
@@ -33,8 +33,10 @@ function Settings() {
         webhook_url: ''
     });
 
+    const [showPassword, setShowPassword] = useState(false);
+
     useEffect(() => {
-        fetch(`${API_BASE}/settings`)
+        authFetch(`${API_BASE}/settings`)
             .then(res => res.json())
             .then(data => {
                 if (data.message === 'success' && data.data) {
@@ -63,7 +65,7 @@ function Settings() {
 
     const handleSave = async () => {
         try {
-            const res = await fetch(`${API_BASE}/settings`, {
+            const res = await authFetch(`${API_BASE}/settings`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)
@@ -80,23 +82,27 @@ function Settings() {
         }
     };
     
-    const handleTest = async () => {
+    const handleTest = async (type) => {
         // Save first? Maybe warn user.
         // For now just call test endpoint which reads from DB, so we should save first implicitly or tell user.
         // Or we can pass current state to test endpoint? 
         // The endpoint reads from DB. So we MUST save first.
         try {
              // Save first automatically? 
-             await fetch('http://localhost:3000/settings', {
+             await authFetch(`${API_BASE}/settings`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)
             });
             
-            const res = await fetch('http://localhost:3000/test-notification', { method: 'POST' });
+            const res = await authFetch(`${API_BASE}/test-notification`, { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type })
+            });
             const data = await res.json();
             if (data.message === 'success') {
-                showToast('Test notification sent! Check your inbox/app.', 'success');
+                showToast(`Test ${type ? type : 'notification'} sent! Check your device.`, 'success');
             } else {
                 showToast('Test functionality failed: ' + (data.error || 'Unknown error'), 'error');
             }
@@ -112,7 +118,7 @@ function Settings() {
     const handleFetchModels = async () => {
         setFetchingModels(true);
         try {
-            const res = await fetch(`${API_BASE}/api/models`, {
+            const res = await authFetch(`${API_BASE}/api/models`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -135,6 +141,28 @@ function Settings() {
             setFetchingModels(false);
         }
     };
+
+    const handleExport = async () => {
+        try {
+            const res = await authFetch(`${API_BASE}/data/export`);
+            if (res.ok) {
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `monitors-export-${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            } else {
+                showToast('Export failed', 'error');
+            }
+        } catch (e) {
+            console.error(e);
+            showToast('Export error', 'error');
+        }
+    }
 
     return (
         <div className="flex h-full w-full bg-[#0d1117] flex-col text-white">
@@ -208,6 +236,14 @@ function Settings() {
                                     <label className="block text-sm font-medium text-gray-400 mb-1">Send to Email</label>
                                     <input type="email" name="email_to" value={settings.email_to} onChange={handleChange} className="w-full bg-[#0d1117] border border-gray-700 rounded p-2 text-white focus:border-blue-500 focus:outline-none" placeholder="recipient@example.com" />
                                 </div>
+                                <div className="md:col-span-2">
+                                   <button 
+                                        onClick={() => handleTest('email')}
+                                        className="bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 px-4 py-2 rounded text-sm font-medium transition-colors border border-blue-600/30 hover:border-blue-600/50 flex items-center gap-2 w-full justify-center"
+                                    >
+                                        <Mail size={16} /> Test Email
+                                    </button>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -261,6 +297,14 @@ function Settings() {
                                         </div>
                                     </>
                                 )}
+                                <div>
+                                    <button 
+                                        onClick={() => handleTest('push')}
+                                        className="bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 px-4 py-2 rounded text-sm font-medium transition-colors border border-blue-600/30 hover:border-blue-600/50 flex items-center gap-2 w-full justify-center"
+                                    >
+                                        <Smartphone size={16} /> Test {settings.push_type === 'pushover' ? 'Pushover' : 'Telegram'}
+                                    </button>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -382,7 +426,7 @@ function Settings() {
                         <h2 className="text-lg font-semibold text-white mb-4">Data Management</h2>
                         <div className="flex gap-4">
                             <button 
-                                onClick={() => window.open(`${API_BASE}/data/export`, '_blank')}
+                                onClick={handleExport}
                                 className="flex-1 bg-[#21262d] text-gray-300 py-3 rounded-lg hover:bg-[#30363d] border border-gray-700 font-bold transition-colors flex items-center justify-center gap-2"
                             >
                                 <Download size={20} /> Export Monitors
@@ -400,7 +444,7 @@ function Settings() {
                                         reader.onload = async (event) => {
                                             try {
                                                 const json = JSON.parse(event.target.result);
-                                                const res = await fetch(`${API_BASE}/data/import`, {
+                                                const res = await authFetch(`${API_BASE}/data/import`, {
                                                     method: 'POST',
                                                     headers: { 'Content-Type': 'application/json' },
                                                     body: JSON.stringify(json)
@@ -431,12 +475,7 @@ function Settings() {
                         >
                             <Save size={20} /> Save Settings
                         </button>
-                        <button 
-                            onClick={handleTest}
-                            className="bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 font-bold transition-colors shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2"
-                        >
-                            <Bell size={20} /> Test Notification
-                        </button>
+
                     </div>
 
                 </div>

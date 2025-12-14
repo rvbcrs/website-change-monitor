@@ -1,43 +1,45 @@
+import StatsOverview from './components/StatsOverview'
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Trash2, Edit, Plus, ExternalLink, Filter, ArrowDown, Pause, Play, ArrowRight, RefreshCw } from 'lucide-react'
+import { Trash2, Edit, Plus, ExternalLink, Filter, ArrowDown, Pause, Play, ArrowRight, RefreshCw, Layout } from 'lucide-react'
 import { useToast } from './contexts/ToastContext'
 import { useDialog } from './contexts/DialogContext'
+import { useAuth } from './contexts/AuthContext'
 
-const TimeAgo = ({ date }) => {
-    const [timeString, setTimeString] = useState('');
-    
-    useEffect(() => {
-        const updateTime = () => {
-            if (!date) return setTimeString('');
-            const now = new Date();
-            const past = new Date(date);
-            const diffInSeconds = Math.floor((now - past) / 1000);
-            
-            if (diffInSeconds < 5) setTimeString('just now');
-            else if (diffInSeconds < 60) setTimeString(`${diffInSeconds}s ago`);
-            else if (diffInSeconds < 3600) setTimeString(`${Math.floor(diffInSeconds / 60)}m ago`);
-            else if (diffInSeconds < 86400) setTimeString(`${Math.floor(diffInSeconds / 3600)}h ago`);
-            else setTimeString(`${Math.floor(diffInSeconds / 86400)}d ago`);
-        };
-        
-        updateTime();
-        const interval = setInterval(updateTime, 60000); // Update every minute
-        return () => clearInterval(interval);
-    }, [date]);
-    
-    return <span>{timeString}</span>;
+// ... existing code ...
+
+const timeAgo = (dateParam) => {
+    if (!dateParam) return null;
+    const date = typeof dateParam === 'object' ? dateParam : new Date(dateParam);
+    const today = new Date();
+    const seconds = Math.round((today - date) / 1000);
+    const minutes = Math.round(seconds / 60);
+    const hours = Math.round(minutes / 60);
+    const days = Math.round(hours / 24);
+
+    if (seconds < 5) return 'just now';
+    if (seconds < 60) return `${seconds}s ago`;
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    return `${days}d ago`;
 };
 
-function Dashboard() {
+const TimeAgo = ({ date }) => {
+    const timeString = timeAgo(date);
+    return <span>{timeString}</span>; // Displays relative time
+};
+
+const Dashboard = () => {
   const [monitors, setMonitors] = useState([])
   const [loading, setLoading] = useState(true)
   const [checkingMonitors, setCheckingMonitors] = useState(new Set())
   const [selectedTag, setSelectedTag] = useState(null) // null = show all
+  const [showStats, setShowStats] = useState(true)
   const navigate = useNavigate()
   const { showToast } = useToast()
   const { confirm } = useDialog()
-  const API_BASE = import.meta.env.DEV ? 'http://localhost:3000' : '';
+  const { authFetch } = useAuth()
+    const API_BASE = '';
 
   useEffect(() => {
     fetchMonitors()
@@ -48,7 +50,7 @@ function Dashboard() {
   const fetchMonitors = async (silent = false) => {
     if (!silent) setLoading(true)
     try {
-        const res = await fetch(`${API_BASE}/monitors`)
+        const res = await authFetch(`${API_BASE}/monitors`)
         const data = await res.json()
         if (data.message === 'success') {
             setMonitors(data.data)
@@ -74,7 +76,7 @@ function Dashboard() {
       if (!confirmed) return;
 
       try {
-          await fetch(`${API_BASE}/monitors/${id}`, { method: 'DELETE' })
+          await authFetch(`${API_BASE}/monitors/${id}`, { method: 'DELETE' })
           fetchMonitors()
           showToast('Monitor deleted successfully', 'success')
       } catch (e) {
@@ -97,7 +99,7 @@ function Dashboard() {
 
       console.log('Dashboard: Sending request...');
       try {
-          const res = await fetch(`${API_BASE}/monitors/${monitor.id}/check`, { method: 'POST' });
+          const res = await authFetch(`${API_BASE}/monitors/${monitor.id}/check`, { method: 'POST' });
           console.log('Dashboard: Response status:', res.status);
           if(res.ok) {
               await fetchMonitors(); // Refresh list immediately
@@ -127,52 +129,27 @@ function Dashboard() {
       navigate(`/edit/${monitor.id}`)
   }
   
-  // Quick Edit Interval Modal logic (if needed, but moving to visual editor mostly)
-  // We can keep the quick edit for interval if desired, but user asked for visual edit mostly.
-  // For now let's use the Visual Editor for everything to reduce complexity.
-  
   const handleToggleStatus = async (monitor, e) => {
       if (e) {
         e.preventDefault();
         e.stopPropagation();
       }
       try {
-          // Optimistic update
           setMonitors(monitors.map(m => m.id === monitor.id ? { ...m, active: !m.active } : m));
-          
-          await fetch(`${API_BASE}/monitors/${monitor.id}/status`, {
-              method: 'PATCH',
+           await authFetch(`${API_BASE}/monitors/${monitor.id}`, {
+              method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ active: !monitor.active })
           });
       } catch (e) {
           console.error(e);
-          fetchMonitors(); // Revert on error
+          fetchMonitors(); 
       }
-  }
-  
-
-  const timeAgo = (dateParam) => {
-    if (!dateParam) return null;
-    const date = typeof dateParam === 'object' ? dateParam : new Date(dateParam);
-    const today = new Date();
-    const seconds = Math.round((today - date) / 1000);
-    const minutes = Math.round(seconds / 60);
-    const hours = Math.round(minutes / 60);
-    const days = Math.round(hours / 24);
-
-    if (seconds < 5) return 'just now';
-    if (seconds < 60) return `${seconds}s ago`;
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    if (hours < 24) return `${hours}h ago`;
-    return `${days}d ago`;
   }
 
   const formatDate = (dateString) => {
       if (!dateString) return 'Unknown Date';
       try {
-          // Handle SQLite "YYYY-MM-DD HH:MM:SS" -> ISO
           const isoString = dateString.toString().replace(' ', 'T');
           const date = new Date(isoString);
           if (isNaN(date.getTime())) return 'Invalid Date';
@@ -182,12 +159,10 @@ function Dashboard() {
       }
   }
 
-  // Compute all unique tags from monitors
   const allTags = [...new Set(monitors.flatMap(m => {
     try { return JSON.parse(m.tags || '[]'); } catch { return []; }
   }))].sort();
 
-  // Filter monitors by selected tag
   const filteredMonitors = selectedTag 
     ? monitors.filter(m => {
         try { 
@@ -196,18 +171,36 @@ function Dashboard() {
         } catch { return false; }
       })
     : monitors;
-
-  return (
+    return (
     <div className="h-full flex flex-col">
-       <div className="flex justify-between items-center mb-4">
-            <h1 className="text-2xl font-bold text-white">Deltas</h1>
-            <Link to="/new" className="bg-[#1f6feb] hover:bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 text-sm font-medium transition-colors">
-                <Plus size={16} /> New
+       <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-4">
+                <h1 className="text-2xl font-bold text-white tracking-tight">Deltas</h1>
+                <button 
+                    onClick={() => setShowStats(!showStats)}
+                    className={`p-1.5 rounded-md transition-all ${showStats ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-800 text-gray-500 hover:text-gray-300'}`}
+                    title={showStats ? "Hide Statistics" : "Show Statistics"}
+                >
+                    <Layout size={18} />
+                </button>
+            </div>
+            
+            <Link 
+                to="/new" 
+                className="group relative inline-flex items-center gap-2 px-5 py-2.5 bg-[#238636] hover:bg-[#2ea043] text-white rounded-lg font-semibold text-sm transition-all shadow-lg hover:shadow-green-900/30 hover:-translate-y-0.5 border border-transparent hover:border-green-400/30 overflow-hidden"
+            >
+                 <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out"></div>
+                <Plus size={18} className="relative z-10" /> 
+                <span className="relative z-10">Nieuwe Delta</span>
             </Link>
         </div>
 
+        <div className={`transition-all duration-300 ease-in-out overflow-hidden ${showStats ? 'max-h-[500px] opacity-100 mb-6' : 'max-h-0 opacity-0 mb-0'}`}>
+            <StatsOverview />
+        </div>
+
         {/* Tag Filter Pills */}
-        {allTags.length > 0 && (
+                {allTags.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-4">
             <button
               onClick={() => setSelectedTag(null)}
@@ -217,7 +210,7 @@ function Dashboard() {
                   : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
               }`}
             >
-              All ({monitors.length})
+              Alle ({monitors.length})
             </button>
             {allTags.map(tag => (
               <button
@@ -236,14 +229,14 @@ function Dashboard() {
         )}
 
         {loading ? (
-             <div className="text-center py-10 text-gray-500">Loading monitors...</div>
+             <div className="text-center py-10 text-gray-500">Deltas laden...</div>
         ) : (
-            <div className="space-y-2">
+            <div className={`transition-all duration-300 ease-in-out space-y-2`}>
                 {filteredMonitors.length === 0 && (
                     <div className="text-center py-20 bg-[#161b22] rounded-lg border border-dashed border-gray-700">
-                        <h3 className="text-lg font-medium text-gray-300">{selectedTag ? 'No monitors with this tag' : 'No monitors yet'}</h3>
-                        <p className="text-gray-500 mb-4">{selectedTag ? 'Try selecting a different tag or create a new monitor.' : 'Get started by creating your first monitor.'}</p>
-                        {!selectedTag && <Link to="/new" className="text-blue-400 hover:text-blue-300 hover:underline">Create Monitor</Link>}
+                        <h3 className="text-lg font-medium text-gray-300">{selectedTag ? 'Geen deltas met deze tag' : 'Nog geen deltas'}</h3>
+                        <p className="text-gray-500 mb-4">{selectedTag ? 'Probeer een andere tag of maak een nieuwe delta.' : 'Begin met het aanmaken van je eerste delta.'}</p>
+                        {!selectedTag && <Link to="/new" className="text-blue-400 hover:text-blue-300 hover:underline">Nieuwe Delta</Link>}
                     </div>
                 )}
 

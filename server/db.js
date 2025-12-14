@@ -17,10 +17,29 @@ const db = new sqlite3.Database(dbPath, (err) => {
     }
 });
 
+const bcrypt = require('bcrypt');
+
 function initDb() {
     db.serialize(() => {
+        // Users Table
+        db.run(`CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT DEFAULT 'user',
+            is_verified INTEGER DEFAULT 0,
+            verification_token TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )`, (err) => {
+            if (err) console.error("Error creating users table:", err);
+            else {
+                // Table created
+            }
+        });
+
         db.run(`CREATE TABLE IF NOT EXISTS monitors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
             url TEXT NOT NULL,
             selector TEXT NOT NULL,
             selector_text TEXT,
@@ -33,7 +52,8 @@ function initDb() {
             name TEXT,
             active BOOLEAN DEFAULT 1,
             notify_config TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id)
         )`, (err) => {
             if (err) console.error("Error creating monitors table:", err);
         });
@@ -41,11 +61,26 @@ function initDb() {
         // Migration: Add active column if it doesn't exist
         db.all("PRAGMA table_info(monitors)", (err, rows) => {
             if (!err) {
+                const hasUserId = rows.some(r => r.name === 'user_id');
+                if (!hasUserId) {
+                    console.log('Migrating: Adding user_id column to monitors table...');
+                    db.run("ALTER TABLE monitors ADD COLUMN user_id INTEGER", (err) => {
+                        if (!err) {
+                            // Assign to admin (assuming ID 1 if created above, but safer to lookup)
+                            db.get("SELECT id FROM users WHERE email = 'admin@deltawatch.io'", (err, user) => {
+                                if (user) {
+                                    db.run("UPDATE monitors SET user_id = ?", [user.id]);
+                                }
+                            });
+                        }
+                    });
+                }
                 const hasActive = rows.some(r => r.name === 'active');
                 if (!hasActive) {
                     console.log('Migrating: Adding active column to monitors table...');
                     db.run("ALTER TABLE monitors ADD COLUMN active BOOLEAN DEFAULT 1");
                 }
+                // ... (rest of migrations) ...
                 const hasScreenshot = rows.some(r => r.name === 'last_screenshot');
                 if (!hasScreenshot) {
                     console.log('Migrating: Adding last_screenshot column to monitors table...');
@@ -230,6 +265,33 @@ function initDb() {
                 }
             } else {
                 console.error("Error checking settings table info:", err);
+            }
+        });
+        // Migration: Add Verification columns to users
+        db.all("PRAGMA table_info(users)", (err, rows) => {
+            if (!err) {
+                const hasVerified = rows.some(r => r.name === 'is_verified');
+                if (!hasVerified) {
+                    console.log('Migrating: Adding is_verified column to users table...');
+                    db.run("ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0", (err) => {
+                        if (!err) {
+                            // Auto-verify existing users (like admin) to avoid lockout
+                            db.run("UPDATE users SET is_verified = 1");
+                        }
+                    });
+                }
+                const hasToken = rows.some(r => r.name === 'verification_token');
+                if (!hasToken) {
+                    console.log('Migrating: Adding verification_token column to users table...');
+                    db.run("ALTER TABLE users ADD COLUMN verification_token TEXT");
+                }
+                const hasBlocked = rows.some(r => r.name === 'is_blocked');
+                if (!hasBlocked) {
+                    console.log('Migrating: Adding is_blocked column to users table...');
+                    db.run("ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0");
+                }
+            } else {
+                console.error("Error checking users table info:", err);
             }
         });
     });

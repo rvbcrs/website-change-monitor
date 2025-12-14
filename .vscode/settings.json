@@ -1,0 +1,10 @@
+{
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "driver": "SQLite",
+            "database": "/Volumes/docker/deltawatch/data/monitors.db",
+            "name": "DeltaWatch"
+        }
+    ]
+}

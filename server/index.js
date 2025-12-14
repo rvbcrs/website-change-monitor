@@ -12,11 +12,74 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+// Global Request Logger
+app.use((req, res, next) => {
+    console.log(`[Request] ${req.method} ${req.url}`);
+    next();
+});
+
+// Health Check
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', message: 'Server is reachable' });
+});
+
 // Serve static files (like the selector script)
 app.use('/static', express.static(path.join(__dirname, 'public')));
 
 const db = require('./db');
+const auth = require('./auth');
 const { summarizeChange, getModels, analyzePage } = require('./ai');
+
+// Analytics Endpoint (Moved here to have access to auth/db)
+app.get('/api/stats', auth.authenticateToken, (req, res) => {
+    console.log('[API] Stats requested by user:', req.user.id);
+    const userId = req.user.id;
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    const queries = {
+        totalMonitors: new Promise((resolve, reject) => {
+            db.get("SELECT COUNT(*) as count FROM monitors WHERE user_id = ?", [userId], (err, row) => {
+                if (err) reject(err); else resolve(row.count);
+            });
+        }),
+        activeMonitors: new Promise((resolve, reject) => {
+            db.get("SELECT COUNT(*) as count FROM monitors WHERE user_id = ? AND active = 1", [userId], (err, row) => {
+                if (err) reject(err); else resolve(row.count);
+            });
+        }),
+        stats24h: new Promise((resolve, reject) => {
+            db.get(`
+                SELECT 
+                    COUNT(*) as total_checks,
+                    SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as errors,
+                    SUM(CASE WHEN status = 'changed' THEN 1 ELSE 0 END) as changes
+                FROM check_history 
+                JOIN monitors ON check_history.monitor_id = monitors.id
+                WHERE monitors.user_id = ? AND check_history.created_at > ?
+            `, [userId, oneDayAgo], (err, row) => {
+                if (err) reject(err); else resolve(row);
+            });
+        })
+    };
+
+    Promise.all([queries.totalMonitors, queries.activeMonitors, queries.stats24h])
+        .then(([totalMonitors, activeMonitors, stats]) => {
+            res.json({
+                message: 'success',
+                data: {
+                    total_monitors: totalMonitors,
+                    active_monitors: activeMonitors,
+                    checks_24h: stats.total_checks || 0,
+                    errors_24h: stats.errors || 0,
+                    changes_24h: stats.changes || 0
+                }
+            });
+        })
+        .catch(err => {
+            console.error("Stats Error:", err);
+            res.status(500).json({ error: err.message });
+        });
+});
 
 let globalBrowser = null;
 const sessionContexts = new Map(); // sessionId -> { context, lastAccess }
@@ -36,75 +99,7 @@ setInterval(async () => {
 // Serve static files (like the selector script)
 app.use('/static', express.static(path.join(__dirname, 'public')));
 
-app.get('/monitors', (req, res) => {
-    db.all("SELECT * FROM monitors ORDER BY created_at DESC", [], async (err, monitors) => {
-        if (err) {
-            res.status(400).json({ "error": err.message });
-            return;
-        }
 
-        // Fetch history for each monitor
-        const monitorsWithHistory = await Promise.all(monitors.map(async (monitor) => {
-            return new Promise((resolve, reject) => {
-                db.all(
-                    "SELECT id, status, created_at, value, screenshot_path, prev_screenshot_path, diff_screenshot_path, ai_summary, http_status FROM check_history WHERE monitor_id = ? ORDER BY created_at DESC LIMIT 20",
-                    [monitor.id],
-                    (err, history) => {
-                        if (err) resolve({ ...monitor, history: [] }); // Fail gracefully
-                        else resolve({ ...monitor, history: history.reverse() }); // Reverse to show oldest -> newest
-                    }
-                );
-            });
-        }));
-
-        res.json({
-            "message": "success",
-            "data": monitorsWithHistory
-        })
-    });
-});
-
-app.post('/monitors', (req, res) => {
-    const { url, selector, selector_text, interval, type, name, notify_config } = req.body;
-    if (!url || !interval) {
-        return res.status(400).json({ error: 'Missing required fields' });
-    }
-    // For visual type, selector might be empty or default
-    const finalSelector = selector || (type === 'visual' ? 'body' : '');
-
-    if (type !== 'visual' && !finalSelector) {
-        return res.status(400).json({ error: 'Missing selector for text monitor' });
-    }
-
-    const sql = 'INSERT INTO monitors (url, selector, selector_text, interval, type, name, notify_config, ai_prompt, ai_only_visual) VALUES (?,?,?,?,?,?,?,?,?)';
-    const params = [url, finalSelector, selector_text, interval, type || 'text', name || '', notify_config ? JSON.stringify(notify_config) : null, req.body.ai_prompt || null, req.body.ai_only_visual || 0];
-
-    db.run(sql, params, function (err, result) {
-        if (err) {
-            res.status(400).json({ "error": err.message })
-            return;
-        }
-        const newMonitorId = this.lastID;
-
-        // Trigger initial check asynchronously
-        db.get('SELECT * FROM monitors WHERE id = ?', [newMonitorId], async (err, monitor) => {
-            if (!err && monitor) {
-                console.log(`[Auto-Check] Triggering initial check for new monitor ${newMonitorId}`);
-                try {
-                    await checkSingleMonitor(monitor);
-                } catch (e) {
-                    console.error(`[Auto-Check] Initial check failed:`, e.message);
-                }
-            }
-        });
-
-        res.json({
-            "message": "success",
-            "data": { id: newMonitorId, ...req.body },
-            "id": newMonitorId
-        })
-    });
-});
 
 app.get('/status', (req, res) => {
     db.all("SELECT id, name, url, active, last_check, last_change, type, tags FROM monitors WHERE active = 1 ORDER BY name ASC", [], async (err, monitors) => {
@@ -333,51 +328,7 @@ app.post('/preview-scenario', async (req, res) => {
     }
 });
 
-app.put('/monitors/:id', (req, res) => {
-    const { url, selector, selector_text, interval, last_value, type, name, notify_config, ai_prompt, ai_only_visual } = req.body;
-    db.run(
-        `UPDATE monitors set 
-           url = COALESCE(?, url), 
-           selector = COALESCE(?, selector), 
-           selector_text = COALESCE(?, selector_text), 
-           interval = COALESCE(?, interval),
-           last_value = COALESCE(?, last_value),
-           type = COALESCE(?, type),
-           name = COALESCE(?, name),
-           notify_config = COALESCE(?, notify_config),
-           ai_prompt = COALESCE(?, ai_prompt),
-           ai_only_visual = COALESCE(?, ai_only_visual)
-           WHERE id = ?`,
-        [url, selector, selector_text, interval, last_value, type, name, notify_config ? JSON.stringify(notify_config) : null, ai_prompt, ai_only_visual, req.params.id],
-        function (err, result) {
-            if (err) {
-                res.status(400).json({ "error": res.message })
-                return;
-            }
-            res.json({
-                message: "success",
-                data: req.body,
-                changes: this.changes
-            })
-        });
-});
 
-app.patch('/monitors/:id/status', (req, res) => {
-    const { active } = req.body;
-    db.run(
-        'UPDATE monitors SET active = ? WHERE id = ?',
-        [active ? 1 : 0, req.params.id],
-        function (err) {
-            if (err) {
-                res.status(400).json({ "error": err.message })
-                return;
-            }
-            res.json({
-                message: "success",
-                changes: this.changes
-            })
-        });
-});
 
 
 app.get('/proxy', async (req, res) => {
@@ -750,19 +701,245 @@ app.post('/run-scenario-live', async (req, res) => {
     }
 });
 
-// ... existing code ...
-app.get('/settings', (req, res) => {
-    db.get("SELECT * FROM settings WHERE id = 1", (err, row) => {
+// Get all monitors (Scoped to User)
+app.get('/monitors', auth.authenticateToken, (req, res) => {
+    const { tag } = req.query;
+    let sql = "SELECT * FROM monitors WHERE user_id = ?";
+    let params = [req.user.id];
+
+    if (tag) {
+        sql += " AND (tags LIKE ? OR tags LIKE ? OR tags LIKE ?)";
+        params.push(`%"${tag}"%`, `%, "${tag}"%`, `%"${tag}",%`); // JSON array matching is tricky in SQLite text
+        // Improved JSON tag search or simple text search?
+        // Using a simpler TEXT match for now as implemented before
+        sql = "SELECT * FROM monitors WHERE user_id = ? AND tags LIKE ?";
+        params = [req.user.id, `%"${tag}"%`];
+    }
+
+    // Also support getting ALL if admin? No, stick to tenancy.
+    // Wait, users might have 0 monitors initially.
+
+    db.all(sql, params, (err, rows) => {
         if (err) {
             res.status(500).json({ error: err.message });
             return;
         }
-        res.json({ message: 'success', data: row });
+
+        // Attach history to each monitor (limit 50 recent?)
+        // This is expensive N+1.
+        // Optimally we'd do a join or fetch history separately.
+        // Current implementation fetches without history?
+        // Checking previous implementation...
+        // Previous fetch was: "SELECT * FROM monitors" -> then map to attach history
+
+        const monitors = rows;
+        let pending = monitors.length;
+        if (pending === 0) return res.json({ message: "success", data: [] });
+
+        monitors.forEach(monitor => {
+            db.all("SELECT * FROM check_history WHERE monitor_id = ? ORDER BY created_at DESC LIMIT 50", [monitor.id], (err, history) => {
+                if (err) {
+                    monitor.history = [];
+                } else {
+                    monitor.history = history;
+                }
+                pending--;
+                if (pending === 0) {
+                    res.json({ message: "success", data: monitors });
+                }
+            });
+        });
     });
 });
 
-// API to update settings
-app.put('/settings', (req, res) => {
+// Add a new monitor
+app.post('/monitors', auth.authenticateToken, (req, res) => {
+    // ... existing validation ...
+    const { url, selector, interval, type, name, notify_config, ai_prompt, tags, keywords, ai_only_visual } = req.body;
+    const userId = req.user.id;
+
+    db.run(
+        `INSERT INTO monitors (user_id, url, selector, interval, type, name, notify_config, ai_prompt, tags, keywords, ai_only_visual) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [userId, url, selector, interval || '30m', type || 'text', name, JSON.stringify(notify_config), ai_prompt, JSON.stringify(tags), JSON.stringify(keywords), ai_only_visual ? 1 : 0],
+        function (err) {
+            if (err) {
+                res.status(500).json({ error: err.message });
+                return;
+            }
+            res.json({
+                message: "Monitor added",
+                data: { id: this.lastID, ...req.body }
+            });
+        }
+    );
+});
+
+// Update a monitor
+app.put('/monitors/:id', auth.authenticateToken, (req, res) => {
+    const { selector, interval, type, name, active, notify_config, ai_prompt, scenario_config, tags, keywords, ai_only_visual } = req.body;
+    db.run(
+        `UPDATE monitors SET selector = COALESCE(?, selector), interval = COALESCE(?, interval), type = COALESCE(?, type), name = COALESCE(?, name), active = COALESCE(?, active), notify_config = COALESCE(?, notify_config), ai_prompt = COALESCE(?, ai_prompt), scenario_config = COALESCE(?, scenario_config), tags = COALESCE(?, tags), keywords = COALESCE(?, keywords), ai_only_visual = COALESCE(?, ai_only_visual) WHERE id = ? AND user_id = ?`,
+        [selector, interval, type, name, active, notify_config ? JSON.stringify(notify_config) : null, ai_prompt, scenario_config, tags ? JSON.stringify(tags) : null, keywords ? JSON.stringify(keywords) : null, ai_only_visual, req.params.id, req.user.id],
+        function (err) {
+            if (err) {
+                res.status(500).json({ error: err.message });
+                return;
+            }
+            res.json({ message: "Monitor updated" });
+        }
+    );
+});
+
+// Delete a monitor
+app.delete('/monitors/:id', auth.authenticateToken, (req, res) => {
+    // Check ownership first or just DELETE WHERE
+    db.run("DELETE FROM check_history WHERE monitor_id IN (SELECT id FROM monitors WHERE id = ? AND user_id = ?)", [req.params.id, req.user.id], function (err) {
+        if (!err) {
+            db.run("DELETE FROM monitors WHERE id = ? AND user_id = ?", [req.params.id, req.user.id], function (err) {
+                if (err) {
+                    res.status(500).json({ error: err.message });
+                    return;
+                }
+                res.json({ message: "Monitor deleted" });
+            });
+        }
+    });
+});
+
+// Email Verification
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        const result = await auth.registerUser(email, password);
+        res.json(result);
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        const result = await auth.loginUser(email, password);
+        res.json(result);
+    } catch (e) {
+        res.status(401).json({ error: e.message });
+    }
+});
+
+app.post('/api/auth/verify', async (req, res) => {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Token is required' });
+
+    try {
+        const email = await auth.verifyEmail(token);
+        res.json({ message: 'Email verified successfully', email });
+    } catch (e) {
+        res.status(400).json({ error: e.message });
+    }
+});
+
+app.post('/api/auth/resend-verification', async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    try {
+        const result = await auth.resendVerification(email);
+        if (result === 'already_verified') {
+            res.status(400).json({ error: 'Email already verified' });
+        } else {
+            res.json({ message: 'Verification email sent' });
+        }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Check setup status
+app.get('/api/auth/setup-status', async (req, res) => {
+    const isComplete = await auth.isSetupComplete();
+    res.json({ needs_setup: !isComplete });
+});
+
+// Admin Middleware
+const requireAdmin = (req, res, next) => {
+    if (req.user && req.user.role === 'admin') {
+        next();
+    } else {
+        res.status(403).json({ error: 'Access denied: Admin only' });
+    }
+};
+
+// Admin: Get Users
+app.get('/api/admin/users', auth.authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const users = await auth.getUsers();
+        res.json({ message: 'success', data: users });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Admin: Delete User
+app.delete('/api/admin/users/:id', auth.authenticateToken, requireAdmin, (req, res) => {
+    auth.deleteUser(req.params.id)
+        .then(result => res.json({ message: 'success', data: result }))
+        .catch(err => res.status(500).json({ error: err.message }));
+});
+
+app.put('/api/admin/users/:id/block', auth.authenticateToken, requireAdmin, (req, res) => {
+    const { blocked } = req.body;
+    auth.toggleUserBlock(req.params.id, blocked)
+        .then(result => res.json({ message: 'success', data: result }))
+        .catch(err => res.status(500).json({ error: err.message }));
+});
+
+app.post('/api/auth/google', async (req, res) => {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'Token is required' });
+
+    try {
+        const result = await auth.verifyGoogleToken(token);
+        res.json(result);
+    } catch (e) {
+        console.error("Google Auth Error:", e);
+        res.status(401).json({ error: 'Google authentication failed' });
+    }
+});
+
+// Trigger a manual check
+app.post('/monitors/:id/check', auth.authenticateToken, async (req, res) => {
+    // Verify ownership
+    db.get("SELECT * FROM monitors WHERE id = ? AND user_id = ?", [req.params.id, req.user.id], async (err, monitor) => {
+        if (err || !monitor) return res.status(404).json({ error: "Monitor not found" });
+
+        try {
+            await checkSingleMonitor(monitor);
+            res.json({ message: "Check initiated" });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+});
+
+
+
+// Settings (Protected - Maybe Admin only? For now allow all users to read/update global?)
+// Assuming Multi-User means Users manage THEIR monitors, but System Config is ADMIN.
+// But we didn't implement Admin role check middleware yet.
+// Let's just protect it so only logged in users can see it.
+app.get('/settings', auth.authenticateToken, (req, res) => {
+    db.get("SELECT * FROM settings WHERE id = 1", [], (err, row) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json({ message: "success", data: row });
+    });
+});
+
+app.put('/settings', auth.authenticateToken, (req, res) => {
+    // Allow update
     const {
         email_enabled, email_host, email_port, email_secure, email_user, email_pass, email_to,
         push_enabled, push_type, push_key1, push_key2,
@@ -773,11 +950,11 @@ app.put('/settings', (req, res) => {
 
     db.run(
         `UPDATE settings SET 
-            email_enabled = ?, email_host = ?, email_port = ?, email_secure = ?, email_user = ?, email_pass = ?, email_to = ?,
-            push_enabled = ?, push_type = ?, push_key1 = ?, push_key2 = ?,
-            ai_enabled = ?, ai_provider = ?, ai_api_key = ?, ai_model = ?, ai_base_url = ?,
-            proxy_enabled = ?, proxy_server = ?, proxy_auth = ?,
-            webhook_enabled = ?, webhook_url = ?
+        email_enabled = ?, email_host = ?, email_port = ?, email_secure = ?, email_user = ?, email_pass = ?, email_to = ?,
+        push_enabled = ?, push_type = ?, push_key1 = ?, push_key2 = ?,
+        ai_enabled = ?, ai_provider = ?, ai_api_key = ?, ai_model = ?, ai_base_url = ?,
+        proxy_enabled = ?, proxy_server = ?, proxy_auth = ?,
+        webhook_enabled = ?, webhook_url = ?
         WHERE id = 1`,
         [
             email_enabled, email_host, email_port, email_secure, email_user, email_pass, email_to,
@@ -786,24 +963,27 @@ app.put('/settings', (req, res) => {
             proxy_enabled, proxy_server, proxy_auth,
             webhook_enabled, webhook_url
         ],
-        (err) => {
+        function (err) {
             if (err) {
                 res.status(500).json({ error: err.message });
                 return;
             }
-            res.json({ message: 'success' });
+            res.json({ message: "Settings updated" });
         }
     );
 });
 
 // Test notification endpoint
+// Test notification endpoint
 app.post('/test-notification', async (req, res) => {
     const { sendNotification } = require('./notifications');
+    const { type } = req.body; // 'email' or 'push' or undefined
     try {
         await sendNotification(
             'Test Notification',
             'This is a test notification from your Website Change Monitor.',
-            '<h2>Test Notification</h2><p>This is a <strong>HTML</strong> test notification from your <a href="#">Website Change Monitor</a>.</p>'
+            '<h2>Test Notification</h2><p>This is a <strong>HTML</strong> test notification from your <a href="#">Website Change Monitor</a>.</p>',
+            { type } // Pass options object
         );
         res.json({ message: 'success' });
     } catch (e) {
@@ -811,90 +991,17 @@ app.post('/test-notification', async (req, res) => {
     }
 });
 
-// Export monitors
-app.get('/data/export', (req, res) => {
-    db.all("SELECT * FROM monitors", [], (err, rows) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-            return;
-        }
+// Export/Import (Protected)
+app.get('/api/export', auth.authenticateToken, (req, res) => {
+    db.all("SELECT * FROM monitors WHERE user_id = ?", [req.user.id], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Content-Disposition', 'attachment; filename="monitors.json"');
         res.send(JSON.stringify(rows, null, 2));
     });
 });
 
-app.post('/api/models', async (req, res) => {
-    const { provider, apiKey, baseUrl } = req.body;
-    try {
-        const models = await getModels(provider, apiKey, baseUrl);
-        res.json({ message: 'success', data: models });
-    } catch (e) {
-        console.error("Model fetch error:", e);
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// Include analyzePage logic endpoint
-app.post('/api/ai/analyze-page', async (req, res) => {
-    const { url, prompt, html } = req.body;
-    console.log(`[AI Analyze] Request for ${url}`);
-
-    try {
-        let pageHtml = html;
-
-        if (!pageHtml) {
-            // Re-use logic to fetch if no HTML provided
-            const settings = await new Promise((resolve) => db.get("SELECT * FROM settings WHERE id = 1", (err, row) => resolve(row || {})));
-
-            let proxySettings = null;
-            if (settings.proxy_enabled && settings.proxy_server) {
-                proxySettings = {
-                    server: settings.proxy_server,
-                    auth: settings.proxy_auth
-                };
-            }
-
-            const browser = await chromium.launch({
-                headless: true,
-                args: ['--no-sandbox', '--disable-setuid-sandbox'],
-                proxy: proxySettings
-            });
-
-            const page = await browser.newPage();
-            if (proxySettings && proxySettings.auth) {
-                await page.authenticate({
-                    username: proxySettings.auth.split(':')[0],
-                    password: proxySettings.auth.split(':')[1]
-                });
-            }
-
-            await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            await page.waitForTimeout(2000); // Wait for dynamic content
-
-            pageHtml = await page.content();
-            await browser.close();
-        } else {
-            console.log("[AI Analyze] Using provided HTML content (Extension mode)");
-        }
-
-        // Call AI
-        const result = await analyzePage(pageHtml, url, prompt);
-
-        if (!result) {
-            return res.status(500).json({ error: "AI could not identify content" });
-        }
-
-        res.json({ message: "success", data: result });
-
-    } catch (e) {
-        console.error("AI Analyze Error:", e);
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// Import monitors
-app.post('/data/import', (req, res) => {
+app.post('/api/import', auth.authenticateToken, (req, res) => {
     const monitors = req.body;
     if (!Array.isArray(monitors)) {
         return res.status(400).json({ error: 'Invalid data format. Expected an array of monitors.' });
@@ -902,12 +1009,13 @@ app.post('/data/import', (req, res) => {
 
     let importedCount = 0;
     let errorCount = 0;
+    const userId = req.user.id;
 
     const insertMonitor = (monitor) => {
         return new Promise((resolve) => {
             const { url, selector, selector_text, interval, type, name } = monitor;
-            // Check if exists based on URL and Selector combination
-            db.get("SELECT id FROM monitors WHERE url = ? AND selector = ?", [url, selector], (err, row) => {
+            // Check if exists based on URL and Selector AND User
+            db.get("SELECT id FROM monitors WHERE url = ? AND selector = ? AND user_id = ?", [url, selector, userId], (err, row) => {
                 if (err) {
                     errorCount++;
                     resolve();
@@ -916,8 +1024,8 @@ app.post('/data/import', (req, res) => {
                     resolve();
                 } else {
                     db.run(
-                        "INSERT INTO monitors (url, selector, selector_text, interval, type, name) VALUES (?,?,?,?,?,?)",
-                        [url, selector, selector_text, interval, type || 'text', name || ''],
+                        "INSERT INTO monitors (user_id, url, selector, selector_text, interval, type, name) VALUES (?,?,?,?,?,?,?)",
+                        [userId, url, selector, selector_text, interval, type || 'text', name || ''],
                         (err) => {
                             if (!err) importedCount++;
                             else errorCount++;
@@ -937,18 +1045,18 @@ app.post('/data/import', (req, res) => {
 // Serve static files from the React app
 app.use(express.static(path.join(__dirname, '../client/dist')));
 
+
+
+
 // The "catchall" handler: for any request that doesn't
 // match one above, send back React's index.html file.
 app.get(/.*/, (req, res) => {
-    // Check if we are in development mode (where dist might not exist)
     if (fs.existsSync(path.join(__dirname, '../client/dist/index.html'))) {
         res.sendFile(path.join(__dirname, '../client/dist/index.html'));
     } else {
         res.status(404).send('Client not built or in development mode. Use Vite dev server.');
     }
 });
-
-
 
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);

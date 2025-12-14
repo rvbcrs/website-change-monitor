@@ -3,11 +3,11 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useToast } from './contexts/ToastContext';
 import { ArrowLeft, Save, Play, Image, FileText, Check, AlertCircle, MousePointerClick, Bell, Brain } from 'lucide-react';
-// import Layout from './Layout'; // REMOVED
+import { useAuth } from './contexts/AuthContext';
 
 function Editor() {
   console.log("Editor Component Loaded - Cache Bust");
-  const API_BASE = import.meta.env.DEV ? 'http://localhost:3000' : '';
+  const API_BASE = '';
   const [url, setUrl] = useState('')
   const [proxyUrl, setProxyUrl] = useState('')
   const [selectedElement, setSelectedElement] = useState(null)
@@ -16,6 +16,7 @@ function Editor() {
   const { id } = useParams()
   const [monitorType, setMonitorType] = useState('text'); // 'text' or 'visual'
   const { showToast } = useToast();
+  const { authFetch } = useAuth();
   
   const [isSelecting, setIsSelecting] = useState(true); // Default to selection mode
 
@@ -24,11 +25,50 @@ function Editor() {
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiOnlyVisual, setAiOnlyVisual] = useState(false);
 
-  const [searchParams] = useSearchParams(); // Need to import useSearchParams
+  const [searchParams] = useSearchParams();
 
   useEffect(() => {
     if (id) {
-        // ... (existing fetch logic)
+        // Fetch existing monitor
+        const fetchMonitor = async () => {
+            try {
+                const response = await authFetch(`${API_BASE}/monitors`);
+                const data = await response.json();
+                if (data.message === 'success') {
+                    const monitor = data.data.find(m => m.id == id);
+                    if (monitor) {
+                        setUrl(monitor.url);
+                        setName(monitor.name || '');
+                        setInterval(monitor.interval);
+                        setMonitorType(monitor.type);
+                        setAiPrompt(monitor.ai_prompt || '');
+                        setAiOnlyVisual(!!monitor.ai_only_visual);
+                        
+                        // Parse JSON fields
+                        try {
+                            if (monitor.notify_config) setNotifyConfig(JSON.parse(monitor.notify_config));
+                        } catch(e) {}
+                        
+                        if (monitor.selector) {
+                            setSelectedElement({
+                                selector: monitor.selector,
+                                text: monitor.selector_text || 'Loaded Selector'
+                            });
+                        }
+                        
+                        // Set proxy after data load
+                        setProxyUrl(`${API_BASE}/proxy?url=${encodeURIComponent(monitor.url)}`);
+                    } else {
+                        showToast('Monitor not found', 'error');
+                        navigate('/');
+                    }
+                }
+            } catch (e) {
+                console.error(e);
+                showToast('Error loading monitor', 'error');
+            }
+        };
+        fetchMonitor();
     } else {
         // Check for URL query params (from Extension Auto-Config)
         const paramUrl = searchParams.get('url');
@@ -47,8 +87,6 @@ function Editor() {
         }
     }
   }, [id, searchParams])
-
-
 
   useEffect(() => {
     const handleMessage = (event) => {
@@ -99,12 +137,6 @@ function Editor() {
   const handleGo = async () => {
     if (!url) return;
     setIsLoading(true);
-    // Force iframe reload by updating timestamp or similar if needed, 
-    // but just setting proxyUrl triggers reload.
-    // We can't easily know when iframe is done loading here since it's an iframe,
-    // but we can at least show loading while the user waits for the initial "Go" action?
-    // Actually, setting state is instant. The iframe load is what takes time.
-    // We can add an onLoad handler to the iframe to clear loading state.
     const target = `${API_BASE}/proxy?url=${encodeURIComponent(url)}`;
     setProxyUrl(target);
   }
@@ -120,7 +152,7 @@ function Editor() {
         const urlParams = id ? `/${id}` : '';
         const method = id ? 'PUT' : 'POST';
         
-        const response = await fetch(`${API_BASE}/monitors${urlParams}`, {
+        const response = await authFetch(`${API_BASE}/monitors${urlParams}`, {
             method: method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -136,11 +168,11 @@ function Editor() {
             })
         });
         const data = await response.json();
-        if (data.message === 'success') {
+        if (data.message === 'success' || data.message === 'Monitor added' || data.message === 'Monitor updated') {
             showToast('Monitor saved successfully', 'success');
             navigate('/'); 
         } else {
-            showToast('Error saving monitor: ' + data.error, 'error');
+            showToast('Error saving monitor: ' + (data.error || 'Unknown error'), 'error');
         }
     } catch (e) {
         console.error(e);
@@ -184,7 +216,7 @@ function Editor() {
                   <ArrowLeft />
                </button>
                <h1 className="text-xl font-bold text-white shadow-sm whitespace-nowrap">
-                  {id ? 'Edit Monitor' : 'New Monitor'}
+                  {id ? 'Delta Bewerken' : 'Nieuwe Delta'}
                </h1>
              </div>
              
@@ -244,13 +276,12 @@ function Editor() {
                         onClick={async () => {
                             if (!url) return;
                             setIsLoading(true);
-                            // Initial load first to ensure backend can reach it
                             setProxyUrl(`${API_BASE}/proxy?url=${encodeURIComponent(url)}`);
                             
                             showToast("✨ AI is analyzing page...", "info");
                             
                             try {
-                                const res = await fetch(`${API_BASE}/api/ai/analyze-page`, {
+                                const res = await authFetch(`${API_BASE}/api/ai/analyze-page`, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ url, prompt: aiPrompt })
@@ -370,8 +401,6 @@ function Editor() {
                          title="Custom instructions for AI Analysis"
                      />
                  </div>
-
-
 
                  <div className="flex items-center gap-2 border-l border-gray-700 pl-4">
                      <label className="text-gray-400 text-sm whitespace-nowrap">Check Every:</label>
@@ -527,4 +556,3 @@ function Editor() {
 }
 
 export default Editor
-
