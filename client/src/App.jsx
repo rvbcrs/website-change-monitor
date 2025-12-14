@@ -10,6 +10,7 @@ import Login from './Login'
 import Register from './Register'
 import Users from './Users'
 import VerifyEmail from './pages/VerifyEmail'
+import KioskMode from './KioskMode'
 import { ToastProvider } from './contexts/ToastContext'
 import { DialogProvider } from './contexts/DialogContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -41,6 +42,7 @@ function App() {
                 <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
                 <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
                 <Route path="/verify" element={<PublicRoute><VerifyEmail /></PublicRoute>} />
+                <Route path="/kiosk" element={<ProtectedRoute><KioskMode /></ProtectedRoute>} />
                 
                 <Route path="*" element={
                     <ProtectedRoute>

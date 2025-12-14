@@ -184,6 +184,13 @@ const Dashboard = () => {
                 >
                     <Layout size={18} />
                 </button>
+                <Link 
+                    to="/kiosk"
+                    className="p-1.5 rounded-md transition-all bg-gray-800 text-gray-500 hover:text-white"
+                    title="Kiosk Mode"
+                >
+                    <ExternalLink size={18} />
+                </Link>
                 <div className="h-6 w-px bg-gray-800 mx-2"></div>
                 <div className="flex bg-gray-800 rounded-lg p-0.5">
                     <button
