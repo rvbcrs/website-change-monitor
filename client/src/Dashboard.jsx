@@ -1,7 +1,7 @@
 import StatsOverview from './components/StatsOverview'
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Trash2, Edit, Plus, ExternalLink, Filter, ArrowDown, Pause, Play, ArrowRight, RefreshCw } from 'lucide-react'
+import { Trash2, Edit, Plus, ExternalLink, Filter, ArrowDown, Pause, Play, ArrowRight, RefreshCw, Layout } from 'lucide-react'
 import { useToast } from './contexts/ToastContext'
 import { useDialog } from './contexts/DialogContext'
 import { useAuth } from './contexts/AuthContext'
@@ -34,6 +34,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true)
   const [checkingMonitors, setCheckingMonitors] = useState(new Set())
   const [selectedTag, setSelectedTag] = useState(null) // null = show all
+  const [showStats, setShowStats] = useState(true)
   const navigate = useNavigate()
   const { showToast } = useToast()
   const { confirm } = useDialog()
@@ -172,17 +173,34 @@ const Dashboard = () => {
     : monitors;
     return (
     <div className="h-full flex flex-col">
-       <div className="flex justify-between items-center mb-4">
-            <h1 className="text-2xl font-bold text-white">Deltas</h1>
-            <Link to="/new" className="bg-[#1f6feb] hover:bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 text-sm font-medium transition-colors">
-                <Plus size={16} /> New
+       <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-4">
+                <h1 className="text-2xl font-bold text-white tracking-tight">Deltas</h1>
+                <button 
+                    onClick={() => setShowStats(!showStats)}
+                    className={`p-1.5 rounded-md transition-all ${showStats ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-800 text-gray-500 hover:text-gray-300'}`}
+                    title={showStats ? "Hide Statistics" : "Show Statistics"}
+                >
+                    <Layout size={18} />
+                </button>
+            </div>
+            
+            <Link 
+                to="/new" 
+                className="group relative inline-flex items-center gap-2 px-5 py-2.5 bg-[#238636] hover:bg-[#2ea043] text-white rounded-lg font-semibold text-sm transition-all shadow-lg hover:shadow-green-900/30 hover:-translate-y-0.5 border border-transparent hover:border-green-400/30 overflow-hidden"
+            >
+                 <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out"></div>
+                <Plus size={18} className="relative z-10" /> 
+                <span className="relative z-10">Nieuwe Delta</span>
             </Link>
         </div>
 
-        <StatsOverview />
+        <div className={`transition-all duration-300 ease-in-out overflow-hidden ${showStats ? 'max-h-[500px] opacity-100 mb-6' : 'max-h-0 opacity-0 mb-0'}`}>
+            <StatsOverview />
+        </div>
 
         {/* Tag Filter Pills */}
-        {allTags.length > 0 && (
+                {allTags.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-4">
             <button
               onClick={() => setSelectedTag(null)}
@@ -192,7 +210,7 @@ const Dashboard = () => {
                   : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
               }`}
             >
-              All ({monitors.length})
+              Alle ({monitors.length})
             </button>
             {allTags.map(tag => (
               <button
@@ -211,14 +229,14 @@ const Dashboard = () => {
         )}
 
         {loading ? (
-             <div className="text-center py-10 text-gray-500">Loading monitors...</div>
+             <div className="text-center py-10 text-gray-500">Deltas laden...</div>
         ) : (
-            <div className="space-y-2">
+            <div className={`transition-all duration-300 ease-in-out space-y-2`}>
                 {filteredMonitors.length === 0 && (
                     <div className="text-center py-20 bg-[#161b22] rounded-lg border border-dashed border-gray-700">
-                        <h3 className="text-lg font-medium text-gray-300">{selectedTag ? 'No monitors with this tag' : 'No monitors yet'}</h3>
-                        <p className="text-gray-500 mb-4">{selectedTag ? 'Try selecting a different tag or create a new monitor.' : 'Get started by creating your first monitor.'}</p>
-                        {!selectedTag && <Link to="/new" className="text-blue-400 hover:text-blue-300 hover:underline">Create Monitor</Link>}
+                        <h3 className="text-lg font-medium text-gray-300">{selectedTag ? 'Geen deltas met deze tag' : 'Nog geen deltas'}</h3>
+                        <p className="text-gray-500 mb-4">{selectedTag ? 'Probeer een andere tag of maak een nieuwe delta.' : 'Begin met het aanmaken van je eerste delta.'}</p>
+                        {!selectedTag && <Link to="/new" className="text-blue-400 hover:text-blue-300 hover:underline">Nieuwe Delta</Link>}
                     </div>
                 )}
 

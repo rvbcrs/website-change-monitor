@@ -65,12 +65,12 @@ function StatsOverview() {
             {/* Total Monitors */}
             <div className="bg-[#161b22] p-4 rounded-lg border border-gray-800 flex flex-col justify-between h-24 relative overflow-hidden group">
                 <div className="flex justify-between items-start z-10 relative">
-                    <div className="text-gray-400 text-xs uppercase font-bold tracking-wider">Monitors</div>
+                    <div className="text-gray-400 text-xs uppercase font-bold tracking-wider">Deltas</div>
                     <Activity size={16} className="text-blue-500 opacity-75" />
                 </div>
                 <div className="flex items-end gap-2 z-10 relative">
                     <div className="text-2xl font-bold text-white">{stats.active_monitors}</div>
-                    <div className="text-xs text-gray-500 mb-1">/ {stats.total_monitors} active</div>
+                    <div className="text-xs text-gray-500 mb-1">/ {stats.total_monitors} actief</div>
                 </div>
                 <div className="absolute -right-4 -bottom-4 bg-blue-500/10 w-24 h-24 rounded-full blur-xl group-hover:bg-blue-500/20 transition-colors"></div>
             </div>
@@ -78,7 +78,7 @@ function StatsOverview() {
             {/* 24h Checks */}
             <div className="bg-[#161b22] p-4 rounded-lg border border-gray-800 flex flex-col justify-between h-24 relative overflow-hidden group">
                 <div className="flex justify-between items-start z-10 relative">
-                    <div className="text-gray-400 text-xs uppercase font-bold tracking-wider">Checks (24h)</div>
+                    <div className="text-gray-400 text-xs uppercase font-bold tracking-wider">Checks (24u)</div>
                     <TrendingUp size={16} className="text-purple-500 opacity-75" />
                 </div>
                 <div className="flex items-end gap-2 z-10 relative">
@@ -90,12 +90,12 @@ function StatsOverview() {
             {/* Success Rate */}
             <div className="bg-[#161b22] p-4 rounded-lg border border-gray-800 flex flex-col justify-between h-24 relative overflow-hidden group">
                 <div className="flex justify-between items-start z-10 relative">
-                    <div className="text-gray-400 text-xs uppercase font-bold tracking-wider">Health</div>
+                    <div className="text-gray-400 text-xs uppercase font-bold tracking-wider">Gezondheid</div>
                     <CheckCircle size={16} className={successRate >= 98 ? "text-green-500 opacity-75" : "text-yellow-500 opacity-75"} />
                 </div>
                 <div className="flex items-end gap-2 z-10 relative">
                     <div className={`text-2xl font-bold ${successRate >= 98 ? "text-green-400" : "text-yellow-400"}`}>{successRate}%</div>
-                    <div className="text-xs text-gray-500 mb-1">success rate</div>
+                    <div className="text-xs text-gray-500 mb-1">succes ratio</div>
                 </div>
                 <div className={`absolute -right-4 -bottom-4 w-24 h-24 rounded-full blur-xl transition-colors ${successRate >= 98 ? "bg-green-500/10 group-hover:bg-green-500/20" : "bg-yellow-500/10 group-hover:bg-yellow-500/20"}`}></div>
             </div>
@@ -103,7 +103,7 @@ function StatsOverview() {
             {/* Errors */}
             <div className="bg-[#161b22] p-4 rounded-lg border border-gray-800 flex flex-col justify-between h-24 relative overflow-hidden group">
                 <div className="flex justify-between items-start z-10 relative">
-                    <div className="text-gray-400 text-xs uppercase font-bold tracking-wider">Errors (24h)</div>
+                    <div className="text-gray-400 text-xs uppercase font-bold tracking-wider">Fouten (24u)</div>
                     <AlertTriangle size={16} className={stats.errors_24h === 0 ? "text-gray-600" : "text-red-500 opacity-75"} />
                 </div>
                 <div className="flex items-end gap-2 z-10 relative">

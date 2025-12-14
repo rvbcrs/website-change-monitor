@@ -82,7 +82,7 @@ function Settings() {
         }
     };
     
-    const handleTest = async () => {
+    const handleTest = async (type) => {
         // Save first? Maybe warn user.
         // For now just call test endpoint which reads from DB, so we should save first implicitly or tell user.
         // Or we can pass current state to test endpoint? 
@@ -95,10 +95,14 @@ function Settings() {
                 body: JSON.stringify(settings)
             });
             
-            const res = await authFetch(`${API_BASE}/test-notification`, { method: 'POST' });
+            const res = await authFetch(`${API_BASE}/test-notification`, { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type })
+            });
             const data = await res.json();
             if (data.message === 'success') {
-                showToast('Test notification sent! Check your inbox/app.', 'success');
+                showToast(`Test ${type ? type : 'notification'} sent! Check your device.`, 'success');
             } else {
                 showToast('Test functionality failed: ' + (data.error || 'Unknown error'), 'error');
             }
@@ -232,6 +236,14 @@ function Settings() {
                                     <label className="block text-sm font-medium text-gray-400 mb-1">Send to Email</label>
                                     <input type="email" name="email_to" value={settings.email_to} onChange={handleChange} className="w-full bg-[#0d1117] border border-gray-700 rounded p-2 text-white focus:border-blue-500 focus:outline-none" placeholder="recipient@example.com" />
                                 </div>
+                                <div className="md:col-span-2">
+                                   <button 
+                                        onClick={() => handleTest('email')}
+                                        className="bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 px-4 py-2 rounded text-sm font-medium transition-colors border border-blue-600/30 hover:border-blue-600/50 flex items-center gap-2 w-full justify-center"
+                                    >
+                                        <Mail size={16} /> Test Email
+                                    </button>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -285,6 +297,14 @@ function Settings() {
                                         </div>
                                     </>
                                 )}
+                                <div>
+                                    <button 
+                                        onClick={() => handleTest('push')}
+                                        className="bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 px-4 py-2 rounded text-sm font-medium transition-colors border border-blue-600/30 hover:border-blue-600/50 flex items-center gap-2 w-full justify-center"
+                                    >
+                                        <Smartphone size={16} /> Test {settings.push_type === 'pushover' ? 'Pushover' : 'Telegram'}
+                                    </button>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -455,12 +475,7 @@ function Settings() {
                         >
                             <Save size={20} /> Save Settings
                         </button>
-                        <button 
-                            onClick={handleTest}
-                            className="bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 font-bold transition-colors shadow-lg shadow-blue-900/20 flex items-center justify-center gap-2"
-                        >
-                            <Bell size={20} /> Test Notification
-                        </button>
+
                     </div>
 
                 </div>

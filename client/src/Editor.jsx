@@ -216,7 +216,7 @@ function Editor() {
                   <ArrowLeft />
                </button>
                <h1 className="text-xl font-bold text-white shadow-sm whitespace-nowrap">
-                  {id ? 'Edit Monitor' : 'New Monitor'}
+                  {id ? 'Delta Bewerken' : 'Nieuwe Delta'}
                </h1>
              </div>
              

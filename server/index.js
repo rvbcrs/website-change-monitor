@@ -99,75 +99,7 @@ setInterval(async () => {
 // Serve static files (like the selector script)
 app.use('/static', express.static(path.join(__dirname, 'public')));
 
-app.get('/monitors', (req, res) => {
-    db.all("SELECT * FROM monitors ORDER BY created_at DESC", [], async (err, monitors) => {
-        if (err) {
-            res.status(400).json({ "error": err.message });
-            return;
-        }
 
-        // Fetch history for each monitor
-        const monitorsWithHistory = await Promise.all(monitors.map(async (monitor) => {
-            return new Promise((resolve, reject) => {
-                db.all(
-                    "SELECT id, status, created_at, value, screenshot_path, prev_screenshot_path, diff_screenshot_path, ai_summary, http_status FROM check_history WHERE monitor_id = ? ORDER BY created_at DESC LIMIT 20",
-                    [monitor.id],
-                    (err, history) => {
-                        if (err) resolve({ ...monitor, history: [] }); // Fail gracefully
-                        else resolve({ ...monitor, history: history.reverse() }); // Reverse to show oldest -> newest
-                    }
-                );
-            });
-        }));
-
-        res.json({
-            "message": "success",
-            "data": monitorsWithHistory
-        })
-    });
-});
-
-app.post('/monitors', (req, res) => {
-    const { url, selector, selector_text, interval, type, name, notify_config } = req.body;
-    if (!url || !interval) {
-        return res.status(400).json({ error: 'Missing required fields' });
-    }
-    // For visual type, selector might be empty or default
-    const finalSelector = selector || (type === 'visual' ? 'body' : '');
-
-    if (type !== 'visual' && !finalSelector) {
-        return res.status(400).json({ error: 'Missing selector for text monitor' });
-    }
-
-    const sql = 'INSERT INTO monitors (url, selector, selector_text, interval, type, name, notify_config, ai_prompt, ai_only_visual) VALUES (?,?,?,?,?,?,?,?,?)';
-    const params = [url, finalSelector, selector_text, interval, type || 'text', name || '', notify_config ? JSON.stringify(notify_config) : null, req.body.ai_prompt || null, req.body.ai_only_visual || 0];
-
-    db.run(sql, params, function (err, result) {
-        if (err) {
-            res.status(400).json({ "error": err.message })
-            return;
-        }
-        const newMonitorId = this.lastID;
-
-        // Trigger initial check asynchronously
-        db.get('SELECT * FROM monitors WHERE id = ?', [newMonitorId], async (err, monitor) => {
-            if (!err && monitor) {
-                console.log(`[Auto-Check] Triggering initial check for new monitor ${newMonitorId}`);
-                try {
-                    await checkSingleMonitor(monitor);
-                } catch (e) {
-                    console.error(`[Auto-Check] Initial check failed:`, e.message);
-                }
-            }
-        });
-
-        res.json({
-            "message": "success",
-            "data": { id: newMonitorId, ...req.body },
-            "id": newMonitorId
-        })
-    });
-});
 
 app.get('/status', (req, res) => {
     db.all("SELECT id, name, url, active, last_check, last_change, type, tags FROM monitors WHERE active = 1 ORDER BY name ASC", [], async (err, monitors) => {
@@ -396,51 +328,7 @@ app.post('/preview-scenario', async (req, res) => {
     }
 });
 
-app.put('/monitors/:id', (req, res) => {
-    const { url, selector, selector_text, interval, last_value, type, name, notify_config, ai_prompt, ai_only_visual } = req.body;
-    db.run(
-        `UPDATE monitors set 
-           url = COALESCE(?, url), 
-           selector = COALESCE(?, selector), 
-           selector_text = COALESCE(?, selector_text), 
-           interval = COALESCE(?, interval),
-           last_value = COALESCE(?, last_value),
-           type = COALESCE(?, type),
-           name = COALESCE(?, name),
-           notify_config = COALESCE(?, notify_config),
-           ai_prompt = COALESCE(?, ai_prompt),
-           ai_only_visual = COALESCE(?, ai_only_visual)
-           WHERE id = ?`,
-        [url, selector, selector_text, interval, last_value, type, name, notify_config ? JSON.stringify(notify_config) : null, ai_prompt, ai_only_visual, req.params.id],
-        function (err, result) {
-            if (err) {
-                res.status(400).json({ "error": res.message })
-                return;
-            }
-            res.json({
-                message: "success",
-                data: req.body,
-                changes: this.changes
-            })
-        });
-});
 
-app.patch('/monitors/:id/status', (req, res) => {
-    const { active } = req.body;
-    db.run(
-        'UPDATE monitors SET active = ? WHERE id = ?',
-        [active ? 1 : 0, req.params.id],
-        function (err) {
-            if (err) {
-                res.status(400).json({ "error": err.message })
-                return;
-            }
-            res.json({
-                message: "success",
-                changes: this.changes
-            })
-        });
-});
 
 
 app.get('/proxy', async (req, res) => {
@@ -1086,13 +974,16 @@ app.put('/settings', auth.authenticateToken, (req, res) => {
 });
 
 // Test notification endpoint
+// Test notification endpoint
 app.post('/test-notification', async (req, res) => {
     const { sendNotification } = require('./notifications');
+    const { type } = req.body; // 'email' or 'push' or undefined
     try {
         await sendNotification(
             'Test Notification',
             'This is a test notification from your Website Change Monitor.',
-            '<h2>Test Notification</h2><p>This is a <strong>HTML</strong> test notification from your <a href="#">Website Change Monitor</a>.</p>'
+            '<h2>Test Notification</h2><p>This is a <strong>HTML</strong> test notification from your <a href="#">Website Change Monitor</a>.</p>',
+            { type } // Pass options object
         );
         res.json({ message: 'success' });
     } catch (e) {
