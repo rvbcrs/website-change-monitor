@@ -1,10 +1,18 @@
-const express = require('express');
-const cors = require('cors');
-const { chromium } = require('playwright-extra');
-const stealth = require('puppeteer-extra-plugin-stealth');
+import express, { Request, Response, NextFunction } from 'express';
+import cors from 'cors';
+import { chromium } from 'playwright-extra';
+import type { BrowserContext } from 'playwright-core';
+import stealth from 'puppeteer-extra-plugin-stealth';
+import path from 'path';
+import fs from 'fs';
+import db from './db';
+import * as auth from './auth';
+import { summarizeChange, getModels, analyzePage } from './ai';
+import { startScheduler, checkSingleMonitor, previewScenario, executeScenario } from './scheduler';
+import { sendNotification } from './notifications';
+import type { Monitor, Settings, CheckHistory, AuthRequest } from './types';
+
 chromium.use(stealth());
-const path = require('path');
-const fs = require('fs');
 
 const app = express();
 const PORT = 3000;
@@ -13,41 +21,154 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 // Global Request Logger
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
     console.log(`[Request] ${req.method} ${req.url}`);
     next();
 });
 
 // Health Check
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (req: Request, res: Response) => {
     res.json({ status: 'ok', message: 'Server is reachable' });
 });
 
-// Serve static files (like the selector script)
+// AI Analyze Page endpoint (for browser extension and Editor auto-detect)
+app.post('/api/ai/analyze-page', auth.authenticateToken, async (req: AuthRequest, res: Response) => {
+    const { url, html, prompt } = req.body;
+    
+    if (!url) {
+        return res.status(400).json({ error: 'URL is required' });
+    }
+    
+    try {
+        let htmlContent = html;
+        
+        // If HTML is not provided, fetch it server-side using Playwright
+        if (!htmlContent) {
+            console.log('[AI Analyze] Fetching HTML server-side for:', url);
+            
+            const browser = await chromium.launch({ 
+                headless: true,
+                args: ['--disable-blink-features=AutomationControlled']
+            });
+            const context = await browser.newContext({
+                userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            });
+            const page = await context.newPage();
+            
+            try {
+                // Use load event (don't wait for networkidle - it times out on YouTube embeds)
+                await page.goto(url, { waitUntil: 'load', timeout: 30000 });
+                
+                // Wait for common price/content selectors to appear
+                try {
+                    await page.waitForSelector('[class*="price"], [class*="Price"], .product, .price, [data-price]', { 
+                        timeout: 5000 
+                    });
+                } catch (e) {
+                    // Selector not found, continue anyway
+                }
+                
+                // Additional wait for any JS rendering
+                await page.waitForTimeout(3000);
+                htmlContent = await page.content();
+                console.log('[AI Analyze] HTML captured, length:', htmlContent.length);
+            } catch (e: any) {
+                console.log('[AI Analyze] Navigation error:', e.message);
+                try {
+                    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+                    await page.waitForTimeout(5000);
+                    htmlContent = await page.content();
+                } catch (e2: any) {
+                    console.log('[AI Analyze] Fallback also failed:', e2.message);
+                    htmlContent = '';
+                }
+            } finally {
+                await browser.close();
+            }
+        }
+        
+        const result = await analyzePage(url, htmlContent, prompt);
+        res.json({ message: 'success', data: result });
+    } catch (e: any) {
+        console.error('AI Analyze Error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// AI Models endpoint
+app.get('/api/ai/models', auth.authenticateToken, async (req: AuthRequest, res: Response) => {
+    const { provider, apiKey, baseUrl } = req.query;
+    
+    try {
+        const models = await getModels(
+            provider as string || 'openai',
+            apiKey as string | undefined,
+            baseUrl as string | undefined
+        );
+        res.json({ message: 'success', data: models });
+    } catch (e: any) {
+        console.error('AI Models Error:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Serve static files
 app.use('/static', express.static(path.join(__dirname, 'public')));
 
-const db = require('./db');
-const auth = require('./auth');
-const { summarizeChange, getModels, analyzePage } = require('./ai');
+interface StatsRow {
+    total_checks: number;
+    errors: number;
+    changes: number;
+}
 
-// Analytics Endpoint (Moved here to have access to auth/db)
-app.get('/api/stats', auth.authenticateToken, (req, res) => {
-    console.log('[API] Stats requested by user:', req.user.id);
-    const userId = req.user.id;
+interface CountRow {
+    count: number;
+}
+
+interface StatusHistoryRow {
+    status: string;
+    http_status: number | null;
+    created_at: string;
+}
+
+interface SessionData {
+    context: BrowserContext;
+    lastAccess: number;
+}
+
+let globalBrowser: BrowserContext | null = null;
+const sessionContexts = new Map<string, SessionData>();
+
+// Cleanup interval
+setInterval(async () => {
+    const now = Date.now();
+    for (const [id, session] of sessionContexts.entries()) {
+        if (now - session.lastAccess > 10 * 60 * 1000) {
+            console.log(`[Proxy] Cleaning up stale session ${id}`);
+            try { await session.context.close(); } catch (e) { }
+            sessionContexts.delete(id);
+        }
+    }
+}, 60000);
+
+// Analytics Endpoint
+app.get('/api/stats', auth.authenticateToken, (req: AuthRequest, res: Response) => {
+    console.log('[API] Stats requested by user:', req.user?.userId);
+    const userId = req.user?.userId;
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
     const queries = {
-        totalMonitors: new Promise((resolve, reject) => {
-            db.get("SELECT COUNT(*) as count FROM monitors WHERE user_id = ?", [userId], (err, row) => {
+        totalMonitors: new Promise<number>((resolve, reject) => {
+            db.get("SELECT COUNT(*) as count FROM monitors WHERE user_id = ?", [userId], (err: Error | null, row: CountRow) => {
                 if (err) reject(err); else resolve(row.count);
             });
         }),
-        activeMonitors: new Promise((resolve, reject) => {
-            db.get("SELECT COUNT(*) as count FROM monitors WHERE user_id = ? AND active = 1", [userId], (err, row) => {
+        activeMonitors: new Promise<number>((resolve, reject) => {
+            db.get("SELECT COUNT(*) as count FROM monitors WHERE user_id = ? AND active = 1", [userId], (err: Error | null, row: CountRow) => {
                 if (err) reject(err); else resolve(row.count);
             });
         }),
-        stats24h: new Promise((resolve, reject) => {
+        stats24h: new Promise<StatsRow>((resolve, reject) => {
             db.get(`
                 SELECT 
                     COUNT(*) as total_checks,
@@ -56,7 +177,7 @@ app.get('/api/stats', auth.authenticateToken, (req, res) => {
                 FROM check_history 
                 JOIN monitors ON check_history.monitor_id = monitors.id
                 WHERE monitors.user_id = ? AND check_history.created_at > ?
-            `, [userId, oneDayAgo], (err, row) => {
+            `, [userId, oneDayAgo], (err: Error | null, row: StatsRow) => {
                 if (err) reject(err); else resolve(row);
             });
         })
@@ -81,45 +202,24 @@ app.get('/api/stats', auth.authenticateToken, (req, res) => {
         });
 });
 
-let globalBrowser = null;
-const sessionContexts = new Map(); // sessionId -> { context, lastAccess }
-
-// Cleanup interval (every minute)
-setInterval(async () => {
-    const now = Date.now();
-    for (const [id, session] of sessionContexts.entries()) {
-        if (now - session.lastAccess > 10 * 60 * 1000) { // 10 min timeout
-            console.log(`[Proxy] Cleaning up stale session ${id}`);
-            try { await session.context.close(); } catch (e) { }
-            sessionContexts.delete(id);
-        }
-    }
-}, 60000);
-
-// Serve static files (like the selector script)
-app.use('/static', express.static(path.join(__dirname, 'public')));
-
-
-
-app.get('/status', (req, res) => {
-    db.all("SELECT id, name, url, active, last_check, last_change, type, tags FROM monitors WHERE active = 1 ORDER BY name ASC", [], async (err, monitors) => {
+// Status endpoint (public)
+app.get('/status', (req: Request, res: Response) => {
+    db.all("SELECT id, name, url, active, last_check, last_change, type, tags FROM monitors WHERE active = 1 ORDER BY name ASC", [], async (err: Error | null, monitors: Monitor[]) => {
         if (err) {
             res.status(500).json({ "error": err.message });
             return;
         }
 
-        // Fetch latest status/history for each to determine "UP/DOWN" roughly
         const statusData = await Promise.all(monitors.map(async (m) => {
             return new Promise((resolve) => {
-                // Get the very last check
-                db.get("SELECT status, http_status, created_at FROM check_history WHERE monitor_id = ? ORDER BY created_at DESC LIMIT 1", [m.id], (err, row) => {
+                db.get("SELECT status, http_status, created_at FROM check_history WHERE monitor_id = ? ORDER BY created_at DESC LIMIT 1", [m.id], (err: Error | null, row: StatusHistoryRow | undefined) => {
                     resolve({
                         id: m.id,
-                        name: m.name || m.url, // Fallback to URL if no name
+                        name: m.name || m.url,
                         url: m.url,
                         last_check: m.last_check,
                         last_change: m.last_change,
-                        status: row ? row.status : 'unknown', // 'changed', 'unchanged', 'error'
+                        status: row ? row.status : 'unknown',
                         http_status: row ? row.http_status : null,
                         type: m.type,
                         tags: m.tags ? JSON.parse(m.tags) : []
@@ -135,8 +235,9 @@ app.get('/status', (req, res) => {
     });
 });
 
-app.get('/monitors/:id', (req, res) => {
-    db.get('SELECT * FROM monitors WHERE id = ?', [req.params.id], (err, row) => {
+// Get single monitor
+app.get('/monitors/:id', (req: Request, res: Response) => {
+    db.get('SELECT * FROM monitors WHERE id = ?', [req.params.id], (err: Error | null, row: Monitor | undefined) => {
         if (err) {
             res.status(400).json({ "error": err.message });
             return;
@@ -144,15 +245,15 @@ app.get('/monitors/:id', (req, res) => {
         res.json({
             "message": "success",
             "data": row
-        })
+        });
     });
 });
 
 // Delete history item
-app.delete('/monitors/:id/history/:historyId', (req, res) => {
+app.delete('/monitors/:id/history/:historyId', (req: Request, res: Response) => {
     const { id, historyId } = req.params;
     console.log(`Received DELETE request for monitor ${id}, history ${historyId}`);
-    db.run("DELETE FROM check_history WHERE id = ? AND monitor_id = ?", [historyId, id], function (err) {
+    db.run("DELETE FROM check_history WHERE id = ? AND monitor_id = ?", [historyId, id], function (this: { changes: number }, err: Error | null) {
         if (err) {
             console.error("Delete error:", err);
             res.status(500).json({ error: err.message });
@@ -165,27 +266,28 @@ app.delete('/monitors/:id/history/:historyId', (req, res) => {
     });
 });
 
-app.delete('/monitors/:id', (req, res) => {
+// Delete monitor (unprotected - legacy)
+app.delete('/monitors/:id', (req: Request, res: Response) => {
     db.run(
         'DELETE FROM monitors WHERE id = ?',
         req.params.id,
-        function (err, result) {
+        function (this: { changes: number }, err: Error | null) {
             if (err) {
-                res.status(400).json({ "error": res.message })
+                res.status(400).json({ "error": err.message });
                 return;
             }
-            res.json({ "message": "deleted", changes: this.changes })
+            res.json({ "message": "deleted", changes: this.changes });
         });
 });
 
 // Update monitor tags
-app.patch('/monitors/:id/tags', (req, res) => {
-    const { tags } = req.body; // Array of tag strings
+app.patch('/monitors/:id/tags', (req: Request, res: Response) => {
+    const { tags } = req.body;
     const tagsJson = JSON.stringify(tags || []);
     db.run(
         'UPDATE monitors SET tags = ? WHERE id = ?',
         [tagsJson, req.params.id],
-        function (err) {
+        function (err: Error | null) {
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
@@ -195,13 +297,13 @@ app.patch('/monitors/:id/tags', (req, res) => {
 });
 
 // Update monitor keywords
-app.patch('/monitors/:id/keywords', (req, res) => {
-    const { keywords } = req.body; // Array of {text: string, mode: 'appears'|'disappears'|'any'}
+app.patch('/monitors/:id/keywords', (req: Request, res: Response) => {
+    const { keywords } = req.body;
     const keywordsJson = JSON.stringify(keywords || []);
     db.run(
         'UPDATE monitors SET keywords = ? WHERE id = ?',
         [keywordsJson, req.params.id],
-        function (err) {
+        function (err: Error | null) {
             if (err) {
                 return res.status(500).json({ error: err.message });
             }
@@ -210,27 +312,28 @@ app.patch('/monitors/:id/keywords', (req, res) => {
     );
 });
 
-app.post('/monitors/:id/check', (req, res) => {
+// Manual check (unprotected - legacy)
+app.post('/monitors/:id/check', (req: Request, res: Response) => {
     const { id } = req.params;
     console.log(`[API] Received Manual Check Request for Monitor ${id}`);
-    db.get('SELECT * FROM monitors WHERE id = ?', [id], async (err, monitor) => {
+    db.get('SELECT * FROM monitors WHERE id = ?', [id], async (err: Error | null, monitor: Monitor | undefined) => {
         if (err || !monitor) {
             return res.status(404).json({ error: 'Monitor not found' });
         }
         try {
             await checkSingleMonitor(monitor);
             res.json({ message: 'Check completed' });
-        } catch (e) {
+        } catch (e: any) {
             console.error("Check Error:", e);
             res.status(500).json({ error: e.message });
         }
     });
 });
 
-// Mark monitor as read (reset unread count)
-app.post('/monitors/:id/read', (req, res) => {
+// Mark monitor as read
+app.post('/monitors/:id/read', (req: Request, res: Response) => {
     const id = req.params.id;
-    db.run("UPDATE monitors SET unread_count = 0 WHERE id = ?", [id], function (err) {
+    db.run("UPDATE monitors SET unread_count = 0 WHERE id = ?", [id], function (err: Error | null) {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
@@ -239,16 +342,16 @@ app.post('/monitors/:id/read', (req, res) => {
 });
 
 // Export monitor history as JSON
-app.get('/monitors/:id/export/json', (req, res) => {
+app.get('/monitors/:id/export/json', (req: Request, res: Response) => {
     const id = req.params.id;
-    db.get("SELECT * FROM monitors WHERE id = ?", [id], (err, monitor) => {
+    db.get("SELECT * FROM monitors WHERE id = ?", [id], (err: Error | null, monitor: Monitor | undefined) => {
         if (err || !monitor) {
             return res.status(404).json({ error: 'Monitor not found' });
         }
         db.all(
             "SELECT id, status, created_at, value, ai_summary FROM check_history WHERE monitor_id = ? ORDER BY created_at DESC",
             [id],
-            (err, history) => {
+            (err: Error | null, history: CheckHistory[]) => {
                 if (err) return res.status(500).json({ error: err.message });
                 res.setHeader('Content-Type', 'application/json');
                 res.setHeader('Content-Disposition', `attachment; filename="monitor-${id}-export.json"`);
@@ -269,20 +372,19 @@ app.get('/monitors/:id/export/json', (req, res) => {
 });
 
 // Export monitor history as CSV
-app.get('/monitors/:id/export/csv', (req, res) => {
+app.get('/monitors/:id/export/csv', (req: Request, res: Response) => {
     const id = req.params.id;
-    db.get("SELECT * FROM monitors WHERE id = ?", [id], (err, monitor) => {
+    db.get("SELECT * FROM monitors WHERE id = ?", [id], (err: Error | null, monitor: Monitor | undefined) => {
         if (err || !monitor) {
             return res.status(404).json({ error: 'Monitor not found' });
         }
         db.all(
             "SELECT id, status, created_at, value, ai_summary FROM check_history WHERE monitor_id = ? ORDER BY created_at DESC",
             [id],
-            (err, history) => {
+            (err: Error | null, history: CheckHistory[]) => {
                 if (err) return res.status(500).json({ error: err.message });
 
-                // Build CSV
-                const escapeCSV = (str) => {
+                const escapeCSV = (str: string | null | undefined): string => {
                     if (!str) return '';
                     str = String(str);
                     if (str.includes(',') || str.includes('"') || str.includes('\n')) {
@@ -304,13 +406,14 @@ app.get('/monitors/:id/export/csv', (req, res) => {
     });
 });
 
-// Endpoint for previewing scenario
-app.post('/preview-scenario', async (req, res) => {
-    const { url, scenario, proxy_enabled } = req.body;
+// Preview scenario
+app.post('/preview-scenario', async (req: Request, res: Response) => {
+    const { url, scenario } = req.body;
 
     try {
-        // Fetch settings for proxy
-        const settings = await new Promise((resolve) => db.get("SELECT * FROM settings WHERE id = 1", (err, row) => resolve(row || {})));
+        const settings = await new Promise<Settings>((resolve) => 
+            db.get("SELECT * FROM settings WHERE id = 1", (err: Error | null, row: Settings) => resolve(row || {} as Settings))
+        );
 
         let proxySettings = null;
         if (settings.proxy_enabled && settings.proxy_server) {
@@ -322,25 +425,23 @@ app.post('/preview-scenario', async (req, res) => {
 
         const screenshot = await previewScenario(url, scenario, proxySettings);
         res.json({ message: 'success', screenshot: screenshot });
-    } catch (e) {
+    } catch (e: any) {
         console.error("Preview scenario error:", e);
         res.status(500).json({ error: e.message });
     }
 });
 
-
-
-
-app.get('/proxy', async (req, res) => {
-    const { url, session_id } = req.query;
+// Proxy endpoint
+app.get('/proxy', async (req: Request, res: Response) => {
+    const url = req.query.url as string | undefined;
+    const session_id = req.query.session_id as string | undefined;
 
     if (!url) {
         return res.status(400).send('Missing URL parameter');
     }
 
     try {
-        // Helper to launch persistent context
-        const launchBrowser = async () => {
+        const launchBrowser = async (): Promise<BrowserContext> => {
             console.log("[Server] Launching Persistent Browser Profile...");
             const userDataDir = path.join(__dirname, 'chrome_user_data');
             if (!fs.existsSync(userDataDir)) {
@@ -348,7 +449,7 @@ app.get('/proxy', async (req, res) => {
             }
 
             const ctx = await chromium.launchPersistentContext(userDataDir, {
-                headless: true, // Invisible
+                headless: true,
                 ignoreDefaultArgs: ['--enable-automation'],
                 args: [
                     '--disable-gpu',
@@ -372,139 +473,71 @@ app.get('/proxy', async (req, res) => {
             return ctx;
         };
 
-        // Check if browser is still alive, relaunch if needed
         if (!globalBrowser) {
             globalBrowser = await launchBrowser();
         } else {
-            // Test if context is still connected by trying to get pages
             try {
-                globalBrowser.pages(); // Throws if closed
+                globalBrowser.pages();
             } catch (e) {
                 console.log("[Server] Browser context was closed, relaunching...");
                 globalBrowser = await launchBrowser();
             }
         }
 
-        // Use the global persistent context
         const context = globalBrowser;
 
-        // Session tracking (logical only now)
         if (session_id) {
             if (!sessionContexts.has(session_id)) {
                 console.log(`[Proxy] New logical session ${session_id} on persistent profile`);
                 sessionContexts.set(session_id, { context, lastAccess: Date.now() });
             } else {
                 console.log(`[Proxy] Continuing session ${session_id}`);
-                sessionContexts.get(session_id).lastAccess = Date.now();
+                const session = sessionContexts.get(session_id)!;
+                session.lastAccess = Date.now();
             }
         }
 
         const page = await context.newPage();
 
-        // Debug Logging
         page.on('console', msg => {
             if (msg.type() === 'error' || msg.type() === 'warning') {
                 console.log(`[Browser ${msg.type().toUpperCase()}] ${msg.text()}`);
             }
         });
         page.on('requestfailed', request => {
-            // Filter out junk
             if (request.url().includes('google') || request.url().includes('doubleclick')) return;
             console.log(`[Browser Network Error] ${request.url()} : ${request.failure()?.errorText}`);
         });
 
-        // Navigate to the target URL
-        // Using 'networkidle' is better for SPAs with loaders, but might timeout on chatty sites.
-        // We'll try networkidle first, falling back to domcontentloaded if needed? 
-        // Or just use networkidle with a reasonable timeout.
         try {
-            // 'domcontentloaded' is fast.
             await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-            // Smart Wait: Try to wait for the full-screen loader to disappear.
-            // Heuristic: Looking for a fixed overlay that covers the screen.
             try {
-                // Wait up to 10s for any fixed inset-0 overlay to DETACH (be removed/hidden).
-                // This targets the specific loader structure we saw: <div class="fixed inset-0 ...">
-                // If it doesn't exist or doesn't detach, we proceed (timeout).
                 await page.waitForSelector('div[class*="fixed"][class*="inset-0"]', { state: 'detached', timeout: 10000 });
             } catch (waitErr) {
                 console.log("Loader wait timeout or not found, proceeding...");
             }
 
-            // Aggressive Cleanup: Remove any high z-index overlays that might block the view
-            /* 
-            try {
-                await page.evaluate(() => {
-                    const clean = () => {
-                        console.log("Running aggressive overlay cleanup...");
-                        const elements = document.querySelectorAll('body > div, body > section, body > aside');
-                        elements.forEach(el => {
-                            const style = window.getComputedStyle(el);
-                            if ((style.position === 'fixed' || style.position === 'absolute') && parseInt(style.zIndex, 10) > 50) {
-                                // Check if it covers the center
-                                const rect = el.getBoundingClientRect();
-                                const centerX = window.innerWidth / 2;
-                                const centerY = window.innerHeight / 2;
-                                if (rect.left <= centerX && rect.right >= centerX && rect.top <= centerY && rect.bottom >= centerY) {
-                                    // Make sure it's not the breadcrumbs or our selector UI (which shouldn't be loaded yet/or has specific class)
-                                    if (!el.classList.contains('wachet-breadcrumbs')) {
-                                        console.log('Removing blocking overlay:', el);
-                                        el.remove();
-                                    }
-                                }
-                            }
-                        });
-                        // Also target specific common spinner classes
-                        const spinners = document.querySelectorAll('[class*="spinner"], [class*="loader"], [class*="loading"], [id*="onetrust"], [class*="overlay"]');
-                        spinners.forEach(el => {
-                            const style = window.getComputedStyle(el);
-                            if (style.position === 'fixed' || parseInt(style.zIndex, 10) > 50) {
-                                el.remove();
-                            }
-                        });
-
-                        // Force unlock scrolling in case the site locked it for the modal
-                        document.documentElement.style.setProperty('overflow', 'auto', 'important');
-                        document.body.style.setProperty('overflow', 'auto', 'important');
-                        document.documentElement.style.setProperty('position', 'static', 'important');
-                        document.body.style.setProperty('position', 'static', 'important');
-                    };
-                    clean();
-                    setTimeout(clean, 500); // Check again lightly
-                });
-            } catch (e) {
-                console.log("Cleanup warning:", e.message);
-            }
-            */
-
-            // Just a small safety buffer for animations to finish
             await page.waitForTimeout(1000);
 
-        } catch (e) {
+        } catch (e: any) {
             console.log("Navigation error (likely timeout), proceeding:", e.message);
         }
 
-        // Base tag injection to fix relative links
-        // We'll also inject our custom script.
         const selectorScript = fs.readFileSync(path.join(__dirname, 'public', 'selector.js'), 'utf8');
 
-        // Helper to inject scripts
         const injectScripts = async () => {
-            await page.evaluate((scriptContent) => {
-                // Create script element
+            await page.evaluate((scriptContent: string) => {
                 const script = document.createElement('script');
                 script.textContent = scriptContent;
                 document.body.appendChild(script);
 
-                // Add base tag if not present
                 if (!document.querySelector('base')) {
                     const base = document.createElement('base');
                     base.href = window.location.href;
                     document.head.prepend(base);
                 }
 
-                // Force viewport for responsiveness
                 const existingViewport = document.querySelector('meta[name="viewport"]');
                 if (existingViewport) existingViewport.remove();
 
@@ -513,40 +546,21 @@ app.get('/proxy', async (req, res) => {
                 meta.content = 'width=device-width, initial-scale=1.0';
                 document.head.prepend(meta);
 
-                // Force full height to prevent cutoff inside the iframe
                 const style = document.createElement('style');
                 style.innerHTML = 'html, body { min-height: 100%; width: 100%; margin: 0; padding: 0; overflow: auto !important; position: static !important; }';
                 document.head.appendChild(style);
-
-                // NOTE: We used to strip scripts here to ensure a static snapshot.
-                // However, users need scripts to interact with cookie banners etc.
-                // We now rely on iframe sandbox to prevent navigation/malicious actions.
-                // 
-                // PREVIOUSLY REMOVED: All other script tags.
-
-                // PREVIOUSLY REMOVED: Known overlays. 
-                // We now let the user manually close them via "Interact Mode".
-
-                // Specific fallback for the user's site structure found in debug
-                /*
-                const root = document.getElementById('root');
-                if (root && root.firstElementChild && root.firstElementChild.classList.contains('fixed') && root.firstElementChild.classList.contains('inset-0')) {
-                    root.firstElementChild.remove();
-                }
-                */
-
             }, selectorScript);
         };
 
         try {
             await injectScripts();
-        } catch (e) {
+        } catch (e: any) {
             if (e.message.includes('Execution context was destroyed')) {
                 console.log("Navigation detected during injection, waiting and retrying...");
                 try {
                     await page.waitForLoadState('domcontentloaded');
                     await injectScripts();
-                } catch (retryErr) {
+                } catch (retryErr: any) {
                     console.error("Retry failed:", retryErr.message);
                 }
             } else {
@@ -554,30 +568,24 @@ app.get('/proxy', async (req, res) => {
             }
         }
 
-        let content = await page.content();
-
-        // Cleanup handled by session manager
-
-
-        // Security headers might prevent iframe usage?
-        // We might need to strip X-Frame-Options if we were proxying the raw request, 
-        // but since we are sending HTML content, it's mostly fine locally.
-        // However, fetching resources (images/css) from the original domain might run into CORS or hotlinking protection.
-        // For now, let's see how much breaks.
-
+        const content = await page.content();
+        
+        // Set headers to allow iframe embedding
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.removeHeader('X-Frame-Options');
+        res.setHeader('X-Frame-Options', 'ALLOWALL');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        
         res.send(content);
 
-    } catch (error) {
+    } catch (error: any) {
         console.error('Proxy Error:', error);
         res.status(500).send('Error fetching page: ' + error.message);
     }
 });
 
-const { startScheduler, checkSingleMonitor, previewScenario, executeScenario } = require('./scheduler');
-const { sendNotification } = require('./notifications');
-
-// Server-Side Scenario Execution Endpoint (VISIBLE + Persistent Profile)
-app.post('/run-scenario-live', async (req, res) => {
+// Server-Side Scenario Execution (VISIBLE)
+app.post('/run-scenario-live', async (req: Request, res: Response) => {
     const { url, scenario } = req.body;
 
     if (!url) {
@@ -586,23 +594,21 @@ app.post('/run-scenario-live', async (req, res) => {
 
     console.log(`[RunScenarioLive] Starting VISIBLE execution on ${url}`);
 
-    let visibleContext = null;
+    let visibleContext: BrowserContext | null = null;
     try {
-        // Close existing headless browser to release UserData lock
         if (globalBrowser) {
             console.log(`[RunScenarioLive] Closing headless browser to use persistent profile...`);
             try { await globalBrowser.close(); } catch (e) { }
             globalBrowser = null;
         }
 
-        // Launch persistent context with VISIBLE mode (shares cookies!)
         const userDataDir = path.join(__dirname, 'chrome_user_data');
         if (!fs.existsSync(userDataDir)) {
             try { fs.mkdirSync(userDataDir); } catch (e) { }
         }
 
         visibleContext = await chromium.launchPersistentContext(userDataDir, {
-            headless: false, // VISIBLE!
+            headless: false,
             ignoreDefaultArgs: ['--enable-automation'],
             args: [
                 '--disable-gpu',
@@ -624,19 +630,15 @@ app.post('/run-scenario-live', async (req, res) => {
 
         const page = await visibleContext.newPage();
 
-        // Navigate to URL
         console.log(`[RunScenarioLive] Navigating to ${url}`);
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-        // Wait for loader to disappear
         try {
             await page.waitForSelector('div[class*="fixed"][class*="inset-0"]', { state: 'detached', timeout: 5000 });
-        } catch (e) { /* Proceed */ }
+        } catch (e) { }
 
-        // Small pause so user sees the loaded page
         await page.waitForTimeout(1000);
 
-        // Execute scenario steps ONE BY ONE with pauses
         if (scenario && Array.isArray(scenario) && scenario.length > 0) {
             console.log(`[RunScenarioLive] Executing ${scenario.length} steps...`);
             for (const step of scenario) {
@@ -664,35 +666,30 @@ app.post('/run-scenario-live', async (req, res) => {
                             }
                             break;
                     }
-                } catch (stepErr) {
+                } catch (stepErr: any) {
                     console.error(`[RunScenarioLive] Step failed: ${stepErr.message}`);
                 }
-                // Brief pause between steps so user can follow
                 await page.waitForTimeout(500);
             }
         }
 
-        // Wait for final page state to settle (login redirect etc)
         console.log(`[RunScenarioLive] Waiting for page to settle...`);
         await page.waitForTimeout(3000);
 
-        // Take screenshot
         const filename = `live-run-${Date.now()}.png`;
         const filepath = path.join(__dirname, 'public', 'screenshots', filename);
         await page.screenshot({ path: filepath, fullPage: true });
 
-        // Keep browser open for 5 seconds so user can inspect result
         console.log(`[RunScenarioLive] Done! Browser stays open for 5s...`);
         await page.waitForTimeout(5000);
 
-        // Close visible context (releases lock, next /proxy will relaunch headless)
         await visibleContext.close();
         visibleContext = null;
 
         console.log(`[RunScenarioLive] Completed. Screenshot: ${filename}`);
         res.json({ success: true, screenshot: filename });
 
-    } catch (error) {
+    } catch (error: any) {
         console.error('[RunScenarioLive] Error:', error);
         if (visibleContext) {
             try { await visibleContext.close(); } catch (e) { }
@@ -701,47 +698,33 @@ app.post('/run-scenario-live', async (req, res) => {
     }
 });
 
-// Get all monitors (Scoped to User)
-app.get('/monitors', auth.authenticateToken, (req, res) => {
+// Get all monitors (Protected)
+app.get('/monitors', auth.authenticateToken, (req: AuthRequest, res: Response) => {
     const { tag } = req.query;
-    let sql = "SELECT * FROM monitors WHERE user_id = ?";
-    let params = [req.user.id];
+    let sql = "SELECT * FROM monitors WHERE user_id = ? ORDER BY created_at DESC";
+    let params: any[] = [req.user?.userId];
 
     if (tag) {
-        sql += " AND (tags LIKE ? OR tags LIKE ? OR tags LIKE ?)";
-        params.push(`%"${tag}"%`, `%, "${tag}"%`, `%"${tag}",%`); // JSON array matching is tricky in SQLite text
-        // Improved JSON tag search or simple text search?
-        // Using a simpler TEXT match for now as implemented before
-        sql = "SELECT * FROM monitors WHERE user_id = ? AND tags LIKE ?";
-        params = [req.user.id, `%"${tag}"%`];
+        sql = "SELECT * FROM monitors WHERE user_id = ? AND tags LIKE ? ORDER BY created_at DESC";
+        params = [req.user?.userId, `%"${tag}"%`];
     }
 
-    // Also support getting ALL if admin? No, stick to tenancy.
-    // Wait, users might have 0 monitors initially.
-
-    db.all(sql, params, (err, rows) => {
+    db.all(sql, params, (err: Error | null, rows: Monitor[]) => {
         if (err) {
             res.status(500).json({ error: err.message });
             return;
         }
-
-        // Attach history to each monitor (limit 50 recent?)
-        // This is expensive N+1.
-        // Optimally we'd do a join or fetch history separately.
-        // Current implementation fetches without history?
-        // Checking previous implementation...
-        // Previous fetch was: "SELECT * FROM monitors" -> then map to attach history
 
         const monitors = rows;
         let pending = monitors.length;
         if (pending === 0) return res.json({ message: "success", data: [] });
 
         monitors.forEach(monitor => {
-            db.all("SELECT * FROM check_history WHERE monitor_id = ? ORDER BY created_at DESC LIMIT 50", [monitor.id], (err, history) => {
+            db.all("SELECT * FROM check_history WHERE monitor_id = ? ORDER BY created_at DESC LIMIT 50", [monitor.id], (err: Error | null, history: CheckHistory[]) => {
                 if (err) {
-                    monitor.history = [];
+                    (monitor as any).history = [];
                 } else {
-                    monitor.history = history;
+                    (monitor as any).history = history;
                 }
                 pending--;
                 if (pending === 0) {
@@ -753,15 +736,14 @@ app.get('/monitors', auth.authenticateToken, (req, res) => {
 });
 
 // Add a new monitor
-app.post('/monitors', auth.authenticateToken, (req, res) => {
-    // ... existing validation ...
-    const { url, selector, interval, type, name, notify_config, ai_prompt, tags, keywords, ai_only_visual } = req.body;
-    const userId = req.user.id;
+app.post('/monitors', auth.authenticateToken, (req: AuthRequest, res: Response) => {
+    const { url, selector, selector_text, interval, type, name, notify_config, ai_prompt, tags, keywords, ai_only_visual } = req.body;
+    const userId = req.user?.userId;
 
     db.run(
-        `INSERT INTO monitors (user_id, url, selector, interval, type, name, notify_config, ai_prompt, tags, keywords, ai_only_visual) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [userId, url, selector, interval || '30m', type || 'text', name, JSON.stringify(notify_config), ai_prompt, JSON.stringify(tags), JSON.stringify(keywords), ai_only_visual ? 1 : 0],
-        function (err) {
+        `INSERT INTO monitors (user_id, url, selector, selector_text, interval, type, name, notify_config, ai_prompt, tags, keywords, ai_only_visual) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [userId, url, selector, selector_text || '', interval || '30m', type || 'text', name, JSON.stringify(notify_config), ai_prompt, JSON.stringify(tags), JSON.stringify(keywords), ai_only_visual ? 1 : 0],
+        function (this: { lastID: number }, err: Error | null) {
             if (err) {
                 res.status(500).json({ error: err.message });
                 return;
@@ -775,12 +757,12 @@ app.post('/monitors', auth.authenticateToken, (req, res) => {
 });
 
 // Update a monitor
-app.put('/monitors/:id', auth.authenticateToken, (req, res) => {
-    const { selector, interval, type, name, active, notify_config, ai_prompt, scenario_config, tags, keywords, ai_only_visual } = req.body;
+app.put('/monitors/:id', auth.authenticateToken, (req: AuthRequest, res: Response) => {
+    const { selector, selector_text, interval, type, name, active, notify_config, ai_prompt, scenario_config, tags, keywords, ai_only_visual } = req.body;
     db.run(
-        `UPDATE monitors SET selector = COALESCE(?, selector), interval = COALESCE(?, interval), type = COALESCE(?, type), name = COALESCE(?, name), active = COALESCE(?, active), notify_config = COALESCE(?, notify_config), ai_prompt = COALESCE(?, ai_prompt), scenario_config = COALESCE(?, scenario_config), tags = COALESCE(?, tags), keywords = COALESCE(?, keywords), ai_only_visual = COALESCE(?, ai_only_visual) WHERE id = ? AND user_id = ?`,
-        [selector, interval, type, name, active, notify_config ? JSON.stringify(notify_config) : null, ai_prompt, scenario_config, tags ? JSON.stringify(tags) : null, keywords ? JSON.stringify(keywords) : null, ai_only_visual, req.params.id, req.user.id],
-        function (err) {
+        `UPDATE monitors SET selector = COALESCE(?, selector), selector_text = COALESCE(?, selector_text), interval = COALESCE(?, interval), type = COALESCE(?, type), name = COALESCE(?, name), active = COALESCE(?, active), notify_config = COALESCE(?, notify_config), ai_prompt = COALESCE(?, ai_prompt), scenario_config = COALESCE(?, scenario_config), tags = COALESCE(?, tags), keywords = COALESCE(?, keywords), ai_only_visual = COALESCE(?, ai_only_visual) WHERE id = ? AND user_id = ?`,
+        [selector, selector_text, interval, type, name, active, notify_config ? JSON.stringify(notify_config) : null, ai_prompt, scenario_config, tags ? JSON.stringify(tags) : null, keywords ? JSON.stringify(keywords) : null, ai_only_visual, req.params.id, req.user?.userId],
+        function (err: Error | null) {
             if (err) {
                 res.status(500).json({ error: err.message });
                 return;
@@ -790,12 +772,11 @@ app.put('/monitors/:id', auth.authenticateToken, (req, res) => {
     );
 });
 
-// Delete a monitor
-app.delete('/monitors/:id', auth.authenticateToken, (req, res) => {
-    // Check ownership first or just DELETE WHERE
-    db.run("DELETE FROM check_history WHERE monitor_id IN (SELECT id FROM monitors WHERE id = ? AND user_id = ?)", [req.params.id, req.user.id], function (err) {
+// Delete a monitor (Protected)
+app.delete('/monitors/:id', auth.authenticateToken, (req: AuthRequest, res: Response) => {
+    db.run("DELETE FROM check_history WHERE monitor_id IN (SELECT id FROM monitors WHERE id = ? AND user_id = ?)", [req.params.id, req.user?.userId], function (err: Error | null) {
         if (!err) {
-            db.run("DELETE FROM monitors WHERE id = ? AND user_id = ?", [req.params.id, req.user.id], function (err) {
+            db.run("DELETE FROM monitors WHERE id = ? AND user_id = ?", [req.params.id, req.user?.userId], function (err: Error | null) {
                 if (err) {
                     res.status(500).json({ error: err.message });
                     return;
@@ -806,40 +787,40 @@ app.delete('/monitors/:id', auth.authenticateToken, (req, res) => {
     });
 });
 
-// Email Verification
-app.post('/api/auth/register', async (req, res) => {
+// Auth endpoints
+app.post('/api/auth/register', async (req: Request, res: Response) => {
     try {
         const { email, password } = req.body;
         const result = await auth.registerUser(email, password);
         res.json(result);
-    } catch (e) {
+    } catch (e: any) {
         res.status(400).json({ error: e.message });
     }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', async (req: Request, res: Response) => {
     try {
         const { email, password } = req.body;
         const result = await auth.loginUser(email, password);
         res.json(result);
-    } catch (e) {
+    } catch (e: any) {
         res.status(401).json({ error: e.message });
     }
 });
 
-app.post('/api/auth/verify', async (req, res) => {
+app.post('/api/auth/verify', async (req: Request, res: Response) => {
     const { token } = req.body;
     if (!token) return res.status(400).json({ error: 'Token is required' });
 
     try {
         const email = await auth.verifyEmail(token);
         res.json({ message: 'Email verified successfully', email });
-    } catch (e) {
+    } catch (e: any) {
         res.status(400).json({ error: e.message });
     }
 });
 
-app.post('/api/auth/resend-verification', async (req, res) => {
+app.post('/api/auth/resend-verification', async (req: Request, res: Response) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required' });
 
@@ -850,19 +831,18 @@ app.post('/api/auth/resend-verification', async (req, res) => {
         } else {
             res.json({ message: 'Verification email sent' });
         }
-    } catch (e) {
+    } catch (e: any) {
         res.status(500).json({ error: e.message });
     }
 });
 
-// Check setup status
-app.get('/api/auth/setup-status', async (req, res) => {
+app.get('/api/auth/setup-status', async (req: Request, res: Response) => {
     const isComplete = await auth.isSetupComplete();
     res.json({ needs_setup: !isComplete });
 });
 
 // Admin Middleware
-const requireAdmin = (req, res, next) => {
+const requireAdmin = (req: AuthRequest, res: Response, next: NextFunction): void => {
     if (req.user && req.user.role === 'admin') {
         next();
     } else {
@@ -871,30 +851,30 @@ const requireAdmin = (req, res, next) => {
 };
 
 // Admin: Get Users
-app.get('/api/admin/users', auth.authenticateToken, requireAdmin, async (req, res) => {
+app.get('/api/admin/users', auth.authenticateToken, requireAdmin, async (req: Request, res: Response) => {
     try {
         const users = await auth.getUsers();
         res.json({ message: 'success', data: users });
-    } catch (e) {
+    } catch (e: any) {
         res.status(500).json({ error: e.message });
     }
 });
 
 // Admin: Delete User
-app.delete('/api/admin/users/:id', auth.authenticateToken, requireAdmin, (req, res) => {
-    auth.deleteUser(req.params.id)
+app.delete('/api/admin/users/:id', auth.authenticateToken, requireAdmin, (req: Request, res: Response) => {
+    auth.deleteUser(parseInt(req.params.id))
         .then(result => res.json({ message: 'success', data: result }))
         .catch(err => res.status(500).json({ error: err.message }));
 });
 
-app.put('/api/admin/users/:id/block', auth.authenticateToken, requireAdmin, (req, res) => {
+app.put('/api/admin/users/:id/block', auth.authenticateToken, requireAdmin, (req: Request, res: Response) => {
     const { blocked } = req.body;
-    auth.toggleUserBlock(req.params.id, blocked)
+    auth.toggleUserBlock(parseInt(req.params.id), blocked)
         .then(result => res.json({ message: 'success', data: result }))
         .catch(err => res.status(500).json({ error: err.message }));
 });
 
-app.post('/api/auth/google', async (req, res) => {
+app.post('/api/auth/google', async (req: Request, res: Response) => {
     const { token } = req.body;
     if (!token) return res.status(400).json({ error: 'Token is required' });
 
@@ -907,29 +887,23 @@ app.post('/api/auth/google', async (req, res) => {
     }
 });
 
-// Trigger a manual check
-app.post('/monitors/:id/check', auth.authenticateToken, async (req, res) => {
-    // Verify ownership
-    db.get("SELECT * FROM monitors WHERE id = ? AND user_id = ?", [req.params.id, req.user.id], async (err, monitor) => {
+// Trigger a manual check (Protected)
+app.post('/monitors/:id/check', auth.authenticateToken, async (req: AuthRequest, res: Response) => {
+    db.get("SELECT * FROM monitors WHERE id = ? AND user_id = ?", [req.params.id, req.user?.userId], async (err: Error | null, monitor: Monitor | undefined) => {
         if (err || !monitor) return res.status(404).json({ error: "Monitor not found" });
 
         try {
             await checkSingleMonitor(monitor);
             res.json({ message: "Check initiated" });
-        } catch (e) {
+        } catch (e: any) {
             res.status(500).json({ error: e.message });
         }
     });
 });
 
-
-
-// Settings (Protected - Maybe Admin only? For now allow all users to read/update global?)
-// Assuming Multi-User means Users manage THEIR monitors, but System Config is ADMIN.
-// But we didn't implement Admin role check middleware yet.
-// Let's just protect it so only logged in users can see it.
-app.get('/settings', auth.authenticateToken, (req, res) => {
-    db.get("SELECT * FROM settings WHERE id = 1", [], (err, row) => {
+// Settings
+app.get('/settings', auth.authenticateToken, (req: Request, res: Response) => {
+    db.get("SELECT * FROM settings WHERE id = 1", [], (err: Error | null, row: Settings | undefined) => {
         if (err) {
             res.status(500).json({ error: err.message });
             return;
@@ -938,10 +912,9 @@ app.get('/settings', auth.authenticateToken, (req, res) => {
     });
 });
 
-app.put('/settings', auth.authenticateToken, (req, res) => {
-    // Allow update
+app.put('/settings', auth.authenticateToken, (req: Request, res: Response) => {
     const {
-        email_enabled, email_host, email_port, email_secure, email_user, email_pass, email_to,
+        email_enabled, email_host, email_port, email_secure, email_user, email_pass, email_to, email_from,
         push_enabled, push_type, push_key1, push_key2,
         ai_enabled, ai_provider, ai_api_key, ai_model, ai_base_url,
         proxy_enabled, proxy_server, proxy_auth,
@@ -950,20 +923,20 @@ app.put('/settings', auth.authenticateToken, (req, res) => {
 
     db.run(
         `UPDATE settings SET 
-        email_enabled = ?, email_host = ?, email_port = ?, email_secure = ?, email_user = ?, email_pass = ?, email_to = ?,
+        email_enabled = ?, email_host = ?, email_port = ?, email_secure = ?, email_user = ?, email_pass = ?, email_to = ?, email_from = ?,
         push_enabled = ?, push_type = ?, push_key1 = ?, push_key2 = ?,
         ai_enabled = ?, ai_provider = ?, ai_api_key = ?, ai_model = ?, ai_base_url = ?,
         proxy_enabled = ?, proxy_server = ?, proxy_auth = ?,
         webhook_enabled = ?, webhook_url = ?
         WHERE id = 1`,
         [
-            email_enabled, email_host, email_port, email_secure, email_user, email_pass, email_to,
+            email_enabled, email_host, email_port, email_secure, email_user, email_pass, email_to, email_from,
             push_enabled, push_type, push_key1, push_key2,
             ai_enabled, ai_provider, ai_api_key, ai_model, ai_base_url,
             proxy_enabled, proxy_server, proxy_auth,
             webhook_enabled, webhook_url
         ],
-        function (err) {
+        function (err: Error | null) {
             if (err) {
                 res.status(500).json({ error: err.message });
                 return;
@@ -973,27 +946,25 @@ app.put('/settings', auth.authenticateToken, (req, res) => {
     );
 });
 
-// Test notification endpoint
-// Test notification endpoint
-app.post('/test-notification', async (req, res) => {
-    const { sendNotification } = require('./notifications');
-    const { type } = req.body; // 'email' or 'push' or undefined
+// Test notification
+app.post('/test-notification', auth.authenticateToken, async (req: Request, res: Response) => {
+    const { type } = req.body;
     try {
         await sendNotification(
             'Test Notification',
-            'This is a test notification from your Website Change Monitor.',
-            '<h2>Test Notification</h2><p>This is a <strong>HTML</strong> test notification from your <a href="#">Website Change Monitor</a>.</p>',
-            { type } // Pass options object
+            'This is a test notification from DeltaWatch.',
+            '<h2>Test Notification</h2><p>This is an <strong>HTML</strong> test notification from <a href="#">DeltaWatch</a>.</p>',
+            { type }
         );
         res.json({ message: 'success' });
-    } catch (e) {
+    } catch (e: any) {
         res.status(500).json({ error: e.message });
     }
 });
 
-// Export/Import (Protected)
-app.get('/api/export', auth.authenticateToken, (req, res) => {
-    db.all("SELECT * FROM monitors WHERE user_id = ?", [req.user.id], (err, rows) => {
+// Export/Import
+app.get('/api/export', auth.authenticateToken, (req: AuthRequest, res: Response) => {
+    db.all("SELECT * FROM monitors WHERE user_id = ?", [req.user?.userId], (err: Error | null, rows: Monitor[]) => {
         if (err) return res.status(500).json({ error: err.message });
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Content-Disposition', 'attachment; filename="monitors.json"');
@@ -1001,7 +972,7 @@ app.get('/api/export', auth.authenticateToken, (req, res) => {
     });
 });
 
-app.post('/api/import', auth.authenticateToken, (req, res) => {
+app.post('/api/import', auth.authenticateToken, (req: AuthRequest, res: Response) => {
     const monitors = req.body;
     if (!Array.isArray(monitors)) {
         return res.status(400).json({ error: 'Invalid data format. Expected an array of monitors.' });
@@ -1009,24 +980,31 @@ app.post('/api/import', auth.authenticateToken, (req, res) => {
 
     let importedCount = 0;
     let errorCount = 0;
-    const userId = req.user.id;
+    const userId = req.user?.userId;
 
-    const insertMonitor = (monitor) => {
+    interface ImportMonitor {
+        url: string;
+        selector: string;
+        selector_text?: string;
+        interval?: string;
+        type?: string;
+        name?: string;
+    }
+
+    const insertMonitor = (monitor: ImportMonitor): Promise<void> => {
         return new Promise((resolve) => {
             const { url, selector, selector_text, interval, type, name } = monitor;
-            // Check if exists based on URL and Selector AND User
-            db.get("SELECT id FROM monitors WHERE url = ? AND selector = ? AND user_id = ?", [url, selector, userId], (err, row) => {
+            db.get("SELECT id FROM monitors WHERE url = ? AND selector = ? AND user_id = ?", [url, selector, userId], (err: Error | null, row: { id: number } | undefined) => {
                 if (err) {
                     errorCount++;
                     resolve();
                 } else if (row) {
-                    // Already exists, skip
                     resolve();
                 } else {
                     db.run(
                         "INSERT INTO monitors (user_id, url, selector, selector_text, interval, type, name) VALUES (?,?,?,?,?,?,?)",
                         [userId, url, selector, selector_text, interval, type || 'text', name || ''],
-                        (err) => {
+                        (err: Error | null) => {
                             if (!err) importedCount++;
                             else errorCount++;
                             resolve();
@@ -1042,15 +1020,11 @@ app.post('/api/import', auth.authenticateToken, (req, res) => {
     });
 });
 
-// Serve static files from the React app
+// Serve static files from React app
 app.use(express.static(path.join(__dirname, '../client/dist')));
 
-
-
-
-// The "catchall" handler: for any request that doesn't
-// match one above, send back React's index.html file.
-app.get(/.*/, (req, res) => {
+// Catchall handler
+app.get(/.*/, (req: Request, res: Response) => {
     if (fs.existsSync(path.join(__dirname, '../client/dist/index.html'))) {
         res.sendFile(path.join(__dirname, '../client/dist/index.html'));
     } else {

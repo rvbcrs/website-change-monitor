@@ -1,15 +1,24 @@
 import { useState, useEffect } from 'react';
-import { Users as UsersIcon, Trash2, Shield, Search } from 'lucide-react';
+import { Users as UsersIcon, Trash2, Shield } from 'lucide-react';
 import { useToast } from './contexts/ToastContext';
 import { useAuth } from './contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
+
+interface UserData {
+    id: number;
+    email: string;
+    role: 'admin' | 'user';
+    is_verified: boolean;
+    is_blocked: boolean;
+    created_at: string;
+}
 
 function Users() {
     const API_BASE = '';
     const { showToast } = useToast();
     const { authFetch, user } = useAuth();
     const navigate = useNavigate();
-    const [users, setUsers] = useState([]);
+    const [users, setUsers] = useState<UserData[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -18,6 +27,7 @@ function Users() {
         } else if (user && user.role !== 'admin') {
              navigate('/'); // Redirect non-admins
         }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user]);
 
     const fetchUsers = async () => {
@@ -36,7 +46,7 @@ function Users() {
         }
     };
 
-    const handleDeleteUser = async (id) => {
+    const handleDeleteUser = async (id: number) => {
         if (!confirm('Are you sure you want to delete this user?')) return;
         try {
             const res = await authFetch(`${API_BASE}/api/admin/users/${id}`, { method: 'DELETE' });
@@ -46,12 +56,12 @@ function Users() {
             } else {
                 showToast('Failed to delete user', 'error');
             }
-        } catch (e) {
+        } catch {
             showToast('Error deleting user', 'error');
         }
     };
 
-    const handleToggleBlock = async (id, blocked) => {
+    const handleToggleBlock = async (id: number, blocked: boolean) => {
         try {
             const res = await authFetch(`${API_BASE}/api/admin/users/${id}/block`, {
                 method: 'PUT',
@@ -157,14 +167,14 @@ function Users() {
                                     ))}
                                     {users.length === 0 && !loading && (
                                         <tr>
-                                            <td colSpan="6" className="p-8 text-center text-gray-500">
+                                            <td colSpan={6} className="p-8 text-center text-gray-500">
                                                 No users found.
                                             </td>
                                         </tr>
                                     )}
                                      {loading && (
                                         <tr>
-                                            <td colSpan="6" className="p-8 text-center text-gray-500">
+                                            <td colSpan={6} className="p-8 text-center text-gray-500">
                                                 Loading users...
                                             </td>
                                         </tr>

@@ -1,14 +1,25 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
 import { Activity, CheckCircle, AlertTriangle, TrendingUp } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
-function StatsOverview() {
-    const [stats, setStats] = useState(null);
+interface Stats {
+    total_monitors: number;
+    active_monitors: number;
+    checks_24h: number;
+    errors_24h: number;
+}
+
+export interface StatsOverviewRef {
+    refresh: () => void;
+}
+
+const StatsOverview = forwardRef<StatsOverviewRef>(function StatsOverview(_props, ref) {
+    const [stats, setStats] = useState<Stats | null>(null);
     const [loading, setLoading] = useState(true);
     const { authFetch } = useAuth();
     const API_BASE = '';
 
-    const [error, setError] = useState(null);
+    const [error, setError] = useState<string | null>(null);
 
     const fetchStats = async () => {
         try {
@@ -24,7 +35,7 @@ function StatsOverview() {
             }
         } catch (e) {
             console.error("Failed to fetch stats", e);
-            setError(`Network/Client Error: ${e.message}`);
+            setError(`Network/Client Error: ${e instanceof Error ? e.message : 'Unknown error'}`);
         } finally {
             setLoading(false);
         }
@@ -32,9 +43,15 @@ function StatsOverview() {
 
     useEffect(() => {
         fetchStats();
-        const interval = setInterval(fetchStats, 60000); // Update every minute
+        const interval = setInterval(fetchStats, 30000); // Update every 30 seconds
         return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Expose refresh function to parent
+    useImperativeHandle(ref, () => ({
+        refresh: fetchStats
+    }));
 
     if (loading) return <div className="animate-pulse h-24 bg-[#161b22] rounded-lg mb-6 border border-gray-800"></div>;
     
@@ -113,6 +130,6 @@ function StatsOverview() {
             </div>
         </div>
     );
-}
+});
 
 export default StatsOverview;

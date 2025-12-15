@@ -1,22 +1,44 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import { createContext, useState, useContext, useEffect, type ReactNode } from 'react';
 
-const AuthContext = createContext(null);
+interface User {
+    id: number;
+    email: string;
+    role: 'admin' | 'user';
+}
 
-export const AuthProvider = ({ children }) => {
-    const [user, setUser] = useState(null);
-    const [token, setToken] = useState(localStorage.getItem('token'));
+interface AuthResult {
+    success: boolean;
+    error?: string;
+}
+
+interface AuthContextType {
+    user: User | null;
+    token: string | null;
+    loading: boolean;
+    login: (email: string, password: string) => Promise<AuthResult>;
+    register: (email: string, password: string) => Promise<AuthResult>;
+    logout: () => void;
+    authFetch: (url: string, options?: RequestInit) => Promise<Response>;
+}
+
+const AuthContext = createContext<AuthContextType | null>(null);
+
+interface AuthProviderProps {
+    children: ReactNode;
+}
+
+export const AuthProvider = ({ children }: AuthProviderProps) => {
+    const [user, setUser] = useState<User | null>(null);
+    const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         // Validate token on load (optional: check expiry)
         if (token) {
-            // We could fetch /me endpoint to validate, but for now decode or assume valid
-            // Let's assume valid and decode payload if possible, or just store token
-            // Ideally we decode the token to get user info.
             try {
-                const payload = JSON.parse(atob(token.split('.')[1]));
+                const payload = JSON.parse(atob(token.split('.')[1])) as User;
                 setUser(payload);
-            } catch (e) {
+            } catch {
                 localStorage.removeItem('token');
                 setToken(null);
             }
@@ -26,7 +48,7 @@ export const AuthProvider = ({ children }) => {
 
     const API_BASE = '';
 
-    const login = async (email, password) => {
+    const login = async (email: string, password: string): Promise<AuthResult> => {
         const res = await fetch(`${API_BASE}/api/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -43,7 +65,7 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    const register = async (email, password) => {
+    const register = async (email: string, password: string): Promise<AuthResult> => {
         const res = await fetch(`${API_BASE}/api/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -67,10 +89,10 @@ export const AuthProvider = ({ children }) => {
     };
 
     // Helper for authenticated fetch
-    const authFetch = async (url, options = {}) => {
-        const headers = options.headers || {};
+    const authFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
+        const headers = new Headers(options.headers);
         if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
+            headers.set('Authorization', `Bearer ${token}`);
         }
         const res = await fetch(url, { ...options, headers });
         if (res.status === 401 || res.status === 403) {
@@ -86,4 +108,10 @@ export const AuthProvider = ({ children }) => {
     );
 };
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = (): AuthContextType => {
+    const context = useContext(AuthContext);
+    if (!context) {
+        throw new Error('useAuth must be used within an AuthProvider');
+    }
+    return context;
+};

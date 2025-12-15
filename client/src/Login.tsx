@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { useAuth } from './contexts/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { useToast } from './contexts/ToastContext';
-import { GoogleLogin } from '@react-oauth/google';
+import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 
 export default function Login() {
     const [email, setEmail] = useState('');
@@ -12,15 +12,11 @@ export default function Login() {
     const navigate = useNavigate();
     const { showToast } = useToast();
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
         const res = await login(email, password);
         if (res.success) {
-            if (res.user && !res.user.is_verified) {
-                 showToast('Login successful, but please verify your email.', 'warning');
-            } else {
-                showToast('Login successful', 'success');
-            }
+            showToast('Login successful', 'success');
             navigate('/');
         } else {
             showToast(res.error || 'Login failed', 'error');
@@ -44,9 +40,28 @@ export default function Login() {
              } else {
                  showToast(data.error || 'Failed to send verification email.', 'error');
              }
-         } catch (e) {
+         } catch {
              showToast('Network error', 'error');
          }
+    };
+
+    const handleGoogleSuccess = async (credentialResponse: CredentialResponse) => {
+        try {
+            const res = await fetch(`/api/auth/google`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: credentialResponse.credential })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                localStorage.setItem('token', data.token);
+                window.location.href = '/'; 
+            } else {
+                showToast(data.error || 'Google Login Failed', 'error');
+            }
+        } catch {
+            showToast('Network Error', 'error');
+        }
     };
 
     return (
@@ -105,24 +120,7 @@ export default function Login() {
 
                 <div className="flex justify-center">
                     <GoogleLogin
-                        onSuccess={async (credentialResponse) => {
-                            try {
-                                const res = await fetch(`/api/auth/google`, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ token: credentialResponse.credential })
-                                });
-                                const data = await res.json();
-                                if (res.ok) {
-                                    localStorage.setItem('token', data.token);
-                                    window.location.href = '/'; 
-                                } else {
-                                    showToast(data.error || 'Google Login Failed', 'error');
-                                }
-                            } catch (e) {
-                                showToast('Network Error', 'error');
-                            }
-                        }}
+                        onSuccess={handleGoogleSuccess}
                         onError={() => {
                             showToast('Google Login Failed', 'error');
                         }}

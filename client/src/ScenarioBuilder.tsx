@@ -1,7 +1,28 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { Plus, Trash2, ArrowUp, ArrowDown, MousePointerClick, Play } from 'lucide-react';
 
-const ACTIONS = [
+interface ActionConfig {
+    value: string;
+    label: string;
+    fields: ('value' | 'selector')[];
+}
+
+interface ScenarioStep {
+    action: string;
+    value?: string;
+    selector?: string;
+}
+
+interface ScenarioBuilderProps {
+    value: string | ScenarioStep[] | null;
+    onChange: (steps: ScenarioStep[]) => void;
+    onPick?: (index: number) => void;
+    onRunStep?: (index: number, step: ScenarioStep) => void;
+    onRunAll?: () => void;
+    activeIndex?: number | null;
+}
+
+const ACTIONS: ActionConfig[] = [
     { value: 'wait', label: 'Wait (ms)', fields: ['value'] },
     { value: 'click', label: 'Click Element', fields: ['selector'] },
     { value: 'type', label: 'Type Text', fields: ['selector', 'value'] },
@@ -10,13 +31,13 @@ const ACTIONS = [
     { value: 'key', label: 'Press Key', fields: ['value'] }
 ];
 
-export default function ScenarioBuilder({ value, onChange, onPick, onRunStep, onRunAll, activeIndex }) {
-    const [steps, setSteps] = useState([]);
-    const stepRefs = useRef([]);
+export default function ScenarioBuilder({ value, onChange, onPick, onRunStep, onRunAll, activeIndex }: ScenarioBuilderProps) {
+    const [steps, setSteps] = useState<ScenarioStep[]>([]);
+    const stepRefs = useRef<(HTMLDivElement | null)[]>([]);
 
     useEffect(() => {
         if (activeIndex !== null && typeof activeIndex === 'number' && stepRefs.current[activeIndex]) {
-            stepRefs.current[activeIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            stepRefs.current[activeIndex]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
     }, [activeIndex]);
 
@@ -36,7 +57,7 @@ export default function ScenarioBuilder({ value, onChange, onPick, onRunStep, on
         }
     }, [value]);
 
-    const updateParent = (newSteps) => {
+    const updateParent = (newSteps: ScenarioStep[]) => {
         setSteps(newSteps);
         onChange(newSteps);
     };
@@ -45,19 +66,19 @@ export default function ScenarioBuilder({ value, onChange, onPick, onRunStep, on
         updateParent([...steps, { action: 'wait', value: '1000' }]);
     };
 
-    const removeStep = (index) => {
+    const removeStep = (index: number) => {
         const newSteps = [...steps];
         newSteps.splice(index, 1);
         updateParent(newSteps);
     };
 
-    const updateStep = (index, field, val) => {
+    const updateStep = (index: number, field: keyof ScenarioStep, val: string) => {
         const newSteps = [...steps];
         newSteps[index] = { ...newSteps[index], [field]: val };
         updateParent(newSteps);
     };
 
-    const moveStep = (index, direction) => {
+    const moveStep = (index: number, direction: number) => {
         if (direction === -1 && index === 0) return;
         if (direction === 1 && index === steps.length - 1) return;
         
@@ -66,6 +87,16 @@ export default function ScenarioBuilder({ value, onChange, onPick, onRunStep, on
         newSteps[index] = newSteps[index + direction];
         newSteps[index + direction] = temp;
         updateParent(newSteps);
+    };
+
+    const handleActionChange = (index: number, e: ChangeEvent<HTMLSelectElement>) => {
+        const newAction = e.target.value;
+        updateStep(index, 'action', newAction);
+        // Auto-activate picker for selector-based actions
+        const config = ACTIONS.find(a => a.value === newAction);
+        if (config && config.fields.includes('selector') && onPick) {
+            onPick(index);
+        }
     };
 
     return (
@@ -107,22 +138,14 @@ export default function ScenarioBuilder({ value, onChange, onPick, onRunStep, on
                         return (
                             <div 
                                 key={index} 
-                                ref={el => stepRefs.current[index] = el}
+                                ref={el => { stepRefs.current[index] = el; }}
                                 className={`flex flex-col gap-2 p-2 rounded border ${isActive ? 'bg-blue-900/40 border-blue-400 ring-1 ring-blue-400 shadow-lg' : 'bg-gray-800 border-gray-700'} relative group transition-all duration-200`}
                             >
                                 <div className="flex items-center gap-2">
                                     <span className="text-gray-500 text-xs w-6 text-center">{index + 1}</span>
                                     <select 
                                         value={step.action}
-                                        onChange={(e) => {
-                                            const newAction = e.target.value;
-                                            updateStep(index, 'action', newAction);
-                                            // Auto-activate picker for selector-based actions
-                                            const config = ACTIONS.find(a => a.value === newAction);
-                                            if (config && config.fields.includes('selector') && onPick) {
-                                                onPick(index);
-                                            }
-                                        }}
+                                        onChange={(e) => handleActionChange(index, e)}
                                         className="bg-gray-900 border border-gray-600 rounded text-gray-300 text-xs p-1 focus:border-blue-500 outline-none"
                                     >
                                         {ACTIONS.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}

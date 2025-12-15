@@ -1,9 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { LayoutDashboard, Settings, Radar, Menu, X, LogOut, User } from 'lucide-react'
 import { useAuth } from './contexts/AuthContext'
 
-function Layout({ children }) {
+interface LayoutProps {
+  children: ReactNode;
+}
+
+interface NavItem {
+  icon: ReactNode;
+  label: string;
+  path: string;
+  adminOnly?: boolean;
+}
+
+function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { user, logout } = useAuth();
@@ -13,7 +24,7 @@ function Layout({ children }) {
     setIsSidebarOpen(false);
   }, [location]);
 
-  const navItems = [
+  const navItems: NavItem[] = [
     { icon: <LayoutDashboard size={20} />, label: 'Monitoring', path: '/' },
     { icon: <Settings size={20} />, label: 'Settings', path: '/settings' },
     { icon: <User size={20} />, label: 'Users', path: '/users', adminOnly: true },
@@ -131,4 +142,3 @@ function Layout({ children }) {
 
 export default Layout;
 export { Layout };
-

@@ -1,9 +1,32 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useCallback, useRef, type ReactNode, type KeyboardEvent } from 'react';
 import ConfirmDialog from '../components/ConfirmDialog';
 
-const DialogContext = createContext(null);
+interface ConfirmOptions {
+    title: string;
+    message?: string;
+    confirmText?: string;
+    cancelText?: string;
+    danger?: boolean;
+}
 
-export const useDialog = () => {
+interface PromptOptions {
+    title?: string;
+    message?: string;
+    placeholder?: string;
+    defaultValue?: string;
+    confirmText?: string;
+    suggestions?: string[];
+    exclude?: string[];
+}
+
+interface DialogContextType {
+    confirm: (options: ConfirmOptions) => Promise<boolean>;
+    prompt: (options: PromptOptions) => Promise<string | null>;
+}
+
+const DialogContext = createContext<DialogContextType | null>(null);
+
+export const useDialog = (): DialogContextType => {
     const context = useContext(DialogContext);
     if (!context) {
         throw new Error('useDialog must be used within a DialogProvider');
@@ -11,21 +34,25 @@ export const useDialog = () => {
     return context;
 };
 
-export const DialogProvider = ({ children }) => {
-    const [dialog, setDialog] = useState(null);
-    const [promptDialog, setPromptDialog] = useState(null);
-    const [promptValue, setPromptValue] = useState('');
-    const resolver = useRef(null);
-    const promptResolver = useRef(null);
+interface DialogProviderProps {
+    children: ReactNode;
+}
 
-    const confirm = useCallback((options) => {
+export const DialogProvider = ({ children }: DialogProviderProps) => {
+    const [dialog, setDialog] = useState<ConfirmOptions | null>(null);
+    const [promptDialog, setPromptDialog] = useState<PromptOptions | null>(null);
+    const [promptValue, setPromptValue] = useState('');
+    const resolver = useRef<((value: boolean) => void) | null>(null);
+    const promptResolver = useRef<((value: string | null) => void) | null>(null);
+
+    const confirm = useCallback((options: ConfirmOptions): Promise<boolean> => {
         setDialog(options);
         return new Promise((resolve) => {
             resolver.current = resolve;
         });
     }, []);
 
-    const prompt = useCallback((options) => {
+    const prompt = useCallback((options: PromptOptions): Promise<string | null> => {
         setPromptDialog(options);
         setPromptValue(options.defaultValue || '');
         return new Promise((resolve) => {
@@ -34,25 +61,29 @@ export const DialogProvider = ({ children }) => {
     }, []);
 
     const handleConfirm = () => {
-        resolver.current && resolver.current(true);
+        resolver.current?.(true);
         setDialog(null);
     };
 
     const handleCancel = () => {
-        resolver.current && resolver.current(false);
+        resolver.current?.(false);
         setDialog(null);
     };
 
     const handlePromptSubmit = () => {
-        promptResolver.current && promptResolver.current(promptValue.trim() || null);
+        promptResolver.current?.(promptValue.trim() || null);
         setPromptDialog(null);
         setPromptValue('');
     };
 
     const handlePromptCancel = () => {
-        promptResolver.current && promptResolver.current(null);
+        promptResolver.current?.(null);
         setPromptDialog(null);
         setPromptValue('');
+    };
+
+    const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') handlePromptSubmit();
     };
 
     return (
@@ -76,7 +107,7 @@ export const DialogProvider = ({ children }) => {
                             type="text"
                             value={promptValue}
                             onChange={(e) => setPromptValue(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handlePromptSubmit()}
+                            onKeyDown={handleKeyDown}
                             placeholder={promptDialog.placeholder || ''}
                             className="w-full bg-[#0d1117] border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 mb-3"
                             autoFocus
@@ -93,7 +124,7 @@ export const DialogProvider = ({ children }) => {
                                                 key={suggestion}
                                                 type="button"
                                                 onClick={() => {
-                                                    promptResolver.current && promptResolver.current(suggestion);
+                                                    promptResolver.current?.(suggestion);
                                                     setPromptDialog(null);
                                                     setPromptValue('');
                                                 }}

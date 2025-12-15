@@ -1,14 +1,28 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
-const fs = require('fs');
+import sqlite3 from 'sqlite3';
+import path from 'path';
+import fs from 'fs';
+
+const verbose = sqlite3.verbose();
 
 const dataDir = process.env.DATA_DIR || path.join(__dirname, 'data');
 if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
 }
 
+interface TableColumn {
+    name: string;
+    type: string;
+    notnull: number;
+    dflt_value: string | null;
+    pk: number;
+}
+
+interface UserRow {
+    id: number;
+}
+
 const dbPath = path.join(dataDir, 'monitors.db');
-const db = new sqlite3.Database(dbPath, (err) => {
+const db = new verbose.Database(dbPath, (err) => {
     if (err) {
         console.error('Error opening database', err.message);
     } else {
@@ -17,9 +31,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
     }
 });
 
-const bcrypt = require('bcrypt');
-
-function initDb() {
+function initDb(): void {
     db.serialize(() => {
         // Users Table
         db.run(`CREATE TABLE IF NOT EXISTS users (
@@ -32,9 +44,6 @@ function initDb() {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )`, (err) => {
             if (err) console.error("Error creating users table:", err);
-            else {
-                // Table created
-            }
         });
 
         db.run(`CREATE TABLE IF NOT EXISTS monitors (
@@ -59,15 +68,14 @@ function initDb() {
         });
 
         // Migration: Add active column if it doesn't exist
-        db.all("PRAGMA table_info(monitors)", (err, rows) => {
+        db.all("PRAGMA table_info(monitors)", (err: Error | null, rows: TableColumn[]) => {
             if (!err) {
                 const hasUserId = rows.some(r => r.name === 'user_id');
                 if (!hasUserId) {
                     console.log('Migrating: Adding user_id column to monitors table...');
                     db.run("ALTER TABLE monitors ADD COLUMN user_id INTEGER", (err) => {
                         if (!err) {
-                            // Assign to admin (assuming ID 1 if created above, but safer to lookup)
-                            db.get("SELECT id FROM users WHERE email = 'admin@deltawatch.io'", (err, user) => {
+                            db.get("SELECT id FROM users WHERE email = 'admin@deltawatch.io'", (err: Error | null, user: UserRow | undefined) => {
                                 if (user) {
                                     db.run("UPDATE monitors SET user_id = ?", [user.id]);
                                 }
@@ -80,7 +88,6 @@ function initDb() {
                     console.log('Migrating: Adding active column to monitors table...');
                     db.run("ALTER TABLE monitors ADD COLUMN active BOOLEAN DEFAULT 1");
                 }
-                // ... (rest of migrations) ...
                 const hasScreenshot = rows.some(r => r.name === 'last_screenshot');
                 if (!hasScreenshot) {
                     console.log('Migrating: Adding last_screenshot column to monitors table...');
@@ -142,8 +149,8 @@ function initDb() {
         });
 
         // Migration: Add screenshot columns to check_history
-        db.all("PRAGMA table_info(check_history)", (err, rows) => {
-            if (!err) {
+        db.all("PRAGMA table_info(check_history)", (err: Error | null, rows: TableColumn[]) => {
+            if (!err && rows) {
                 const hasScreenshot = rows.some(r => r.name === 'screenshot_path');
                 if (!hasScreenshot) {
                     console.log('Migrating: Adding screenshot columns to check_history...');
@@ -163,6 +170,7 @@ function initDb() {
             email_user TEXT,
             email_pass TEXT,
             email_to TEXT,
+            email_from TEXT,
             
             push_enabled BOOLEAN DEFAULT 0,
             push_type TEXT,
@@ -207,9 +215,10 @@ function initDb() {
         db.run(`INSERT OR IGNORE INTO settings (id, email_enabled, push_enabled) VALUES (1, 0, 0)`, (err) => {
             if (err) console.error("Error inserting default settings:", err);
         });
+
         // Migration: Add value column to check_history if it doesn't exist
-        db.all("PRAGMA table_info(check_history)", (err, rows) => {
-            if (!err) {
+        db.all("PRAGMA table_info(check_history)", (err: Error | null, rows: TableColumn[]) => {
+            if (!err && rows) {
                 const hasValue = rows.some(r => r.name === 'value');
                 if (!hasValue) {
                     console.log('Migrating: Adding value column to check_history table...');
@@ -225,14 +234,14 @@ function initDb() {
                     console.log('Migrating: Adding http_status column to check_history table...');
                     db.run("ALTER TABLE check_history ADD COLUMN http_status INTEGER");
                 }
-            } else {
+            } else if (err) {
                 console.error("Error checking check_history table info:", err);
             }
         });
 
         // Migration: Add AI and Proxy columns to settings
-        db.all("PRAGMA table_info(settings)", (err, rows) => {
-            if (!err) {
+        db.all("PRAGMA table_info(settings)", (err: Error | null, rows: TableColumn[]) => {
+            if (!err && rows) {
                 const hasAi = rows.some(r => r.name === 'ai_enabled');
                 if (!hasAi) {
                     console.log('Migrating: Adding AI columns to settings table...');
@@ -249,33 +258,44 @@ function initDb() {
                     db.run("ALTER TABLE settings ADD COLUMN proxy_server TEXT");
                     db.run("ALTER TABLE settings ADD COLUMN proxy_auth TEXT");
                 }
-            } else {
+            } else if (err) {
                 console.error("Error checking settings table info:", err);
             }
         });
 
         // Migration: Add Webhook columns to settings
-        db.all("PRAGMA table_info(settings)", (err, rows) => {
-            if (!err) {
+        db.all("PRAGMA table_info(settings)", (err: Error | null, rows: TableColumn[]) => {
+            if (!err && rows) {
                 const hasWebhook = rows.some(r => r.name === 'webhook_enabled');
                 if (!hasWebhook) {
                     console.log('Migrating: Adding Webhook columns to settings table...');
                     db.run("ALTER TABLE settings ADD COLUMN webhook_enabled BOOLEAN DEFAULT 0");
                     db.run("ALTER TABLE settings ADD COLUMN webhook_url TEXT");
                 }
-            } else {
+            } else if (err) {
                 console.error("Error checking settings table info:", err);
             }
         });
+
+        // Migration: Add email_from column to settings
+        db.all("PRAGMA table_info(settings)", (err: Error | null, rows: TableColumn[]) => {
+            if (!err && rows) {
+                const hasEmailFrom = rows.some(r => r.name === 'email_from');
+                if (!hasEmailFrom) {
+                    console.log('Migrating: Adding email_from column to settings table...');
+                    db.run("ALTER TABLE settings ADD COLUMN email_from TEXT");
+                }
+            }
+        });
+
         // Migration: Add Verification columns to users
-        db.all("PRAGMA table_info(users)", (err, rows) => {
-            if (!err) {
+        db.all("PRAGMA table_info(users)", (err: Error | null, rows: TableColumn[]) => {
+            if (!err && rows) {
                 const hasVerified = rows.some(r => r.name === 'is_verified');
                 if (!hasVerified) {
                     console.log('Migrating: Adding is_verified column to users table...');
                     db.run("ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0", (err) => {
                         if (!err) {
-                            // Auto-verify existing users (like admin) to avoid lockout
                             db.run("UPDATE users SET is_verified = 1");
                         }
                     });
@@ -290,11 +310,11 @@ function initDb() {
                     console.log('Migrating: Adding is_blocked column to users table...');
                     db.run("ALTER TABLE users ADD COLUMN is_blocked INTEGER DEFAULT 0");
                 }
-            } else {
+            } else if (err) {
                 console.error("Error checking users table info:", err);
             }
         });
     });
 }
 
-module.exports = db;
+export default db;

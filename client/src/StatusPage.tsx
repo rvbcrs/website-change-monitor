@@ -1,8 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Activity, CheckCircle, XCircle, AlertTriangle, Clock, Server, RefreshCw } from 'lucide-react';
 
+interface MonitorStatus {
+    id: number;
+    name: string;
+    status: 'unchanged' | 'changed' | 'error';
+    http_status?: number;
+    last_check?: string;
+}
+
 function StatusPage() {
-    const [monitors, setMonitors] = useState([]);
+    const [monitors, setMonitors] = useState<MonitorStatus[]>([]);
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState(new Date());
 
@@ -27,21 +35,21 @@ function StatusPage() {
         return () => clearInterval(interval);
     }, []);
 
-    const getStatusColor = (monitor) => {
+    const getStatusColor = (monitor: MonitorStatus) => {
         if (monitor.http_status && monitor.http_status >= 400) return 'text-red-500';
         if (monitor.status === 'error') return 'text-red-500';
         if (monitor.status === 'changed') return 'text-blue-400';
         return 'text-green-500';
     };
 
-    const getStatusIcon = (monitor) => {
+    const getStatusIcon = (monitor: MonitorStatus) => {
         if (monitor.http_status && monitor.http_status >= 400) return <XCircle className="w-5 h-5 text-red-500" />;
         if (monitor.status === 'error') return <AlertTriangle className="w-5 h-5 text-red-500" />;
         if (monitor.status === 'changed') return <Activity className="w-5 h-5 text-blue-400" />;
         return <CheckCircle className="w-5 h-5 text-green-500" />;
     };
 
-    const getStatusText = (monitor) => {
+    const getStatusText = (monitor: MonitorStatus) => {
         if (monitor.http_status && monitor.http_status >= 400) return `Down (HTTP ${monitor.http_status})`;
         if (monitor.status === 'error') return 'Error';
         if (monitor.status === 'changed') return 'Change Detected';

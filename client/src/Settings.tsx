@@ -1,15 +1,41 @@
-import { useState, useEffect } from 'react';
-import { Trash2, Users, Save, Bell, Mail, Smartphone, Globe, ArrowLeft, Download, Upload, Eye, EyeOff, Brain, Shield, Search } from 'lucide-react';
+import { useState, useEffect, type ChangeEvent } from 'react';
+import { Save, Bell, Mail, Smartphone, Globe, ArrowLeft, Download, Upload, Eye, EyeOff, Brain, Shield, Search } from 'lucide-react';
 import { useToast } from './contexts/ToastContext';
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext';
+
+interface SettingsData {
+    email_enabled: boolean;
+    email_host: string;
+    email_port: number;
+    email_secure: boolean;
+    email_user: string;
+    email_pass: string;
+    email_to: string;
+    email_from: string;
+    push_enabled: boolean;
+    push_type: 'pushover' | 'telegram';
+    push_key1: string;
+    push_key2: string;
+    ai_enabled: boolean;
+    ai_provider: 'openai' | 'ollama';
+    ai_api_key: string;
+    ai_model: string;
+    ai_base_url: string;
+    proxy_enabled: boolean;
+    proxy_server: string;
+    proxy_auth: string;
+    webhook_enabled: boolean;
+    webhook_url: string;
+}
+
 function Settings() {
     const API_BASE = '';
     const navigate = useNavigate();
     const { showToast } = useToast();
-    const { authFetch, user } = useAuth(); // Ensure user is destructured
+    const { authFetch } = useAuth();
 
-    const [settings, setSettings] = useState({
+    const [settings, setSettings] = useState<SettingsData>({
         email_enabled: false,
         email_host: '',
         email_port: 587,
@@ -17,6 +43,7 @@ function Settings() {
         email_user: '',
         email_pass: '',
         email_to: '',
+        email_from: '',
         push_enabled: false,
         push_type: 'pushover',
         push_key1: '',
@@ -34,6 +61,8 @@ function Settings() {
     });
 
     const [showPassword, setShowPassword] = useState(false);
+    const [fetchedModels, setFetchedModels] = useState<string[]>([]);
+    const [fetchingModels, setFetchingModels] = useState(false);
 
     useEffect(() => {
         authFetch(`${API_BASE}/settings`)
@@ -53,10 +82,13 @@ function Settings() {
                 }
             })
             .catch(err => console.error(err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const handleChange = (e) => {
-        const { name, value, type, checked } = e.target;
+    const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const target = e.target as HTMLInputElement;
+        const { name, value, type } = target;
+        const checked = 'checked' in target ? target.checked : false;
         setSettings(prev => ({
             ...prev,
             [name]: type === 'checkbox' ? checked : value
@@ -70,7 +102,6 @@ function Settings() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)
             });
-            const data = await res.json();
             if (res.ok) {
                 showToast('Settings saved successfully', 'success');
             } else {
@@ -82,13 +113,8 @@ function Settings() {
         }
     };
     
-    const handleTest = async (type) => {
-        // Save first? Maybe warn user.
-        // For now just call test endpoint which reads from DB, so we should save first implicitly or tell user.
-        // Or we can pass current state to test endpoint? 
-        // The endpoint reads from DB. So we MUST save first.
+    const handleTest = async (type: string) => {
         try {
-             // Save first automatically? 
              await authFetch(`${API_BASE}/settings`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -108,12 +134,9 @@ function Settings() {
             }
         } catch (e) {
             console.error(e);
-            showToast('Error: ' + e.message, 'error');
+            showToast('Error: ' + (e instanceof Error ? e.message : 'Unknown error'), 'error');
         }
     };
-
-    const [fetchedModels, setFetchedModels] = useState([]);
-    const [fetchingModels, setFetchingModels] = useState(false);
 
     const handleFetchModels = async () => {
         setFetchingModels(true);
@@ -163,6 +186,34 @@ function Settings() {
             showToast('Export error', 'error');
         }
     }
+
+    const handleImport = async (e: ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const json = JSON.parse(event.target?.result as string);
+                const res = await authFetch(`${API_BASE}/data/import`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(json)
+                });
+                const data = await res.json();
+                if (data.message === 'success') {
+                    showToast(`Imported ${data.imported} monitors. Skipped/Failed: ${data.errors}`, 'success');
+                } else {
+                    showToast(data.error || 'Import failed', 'error');
+                }
+            } catch (err) {
+                console.error(err);
+                showToast('Invalid JSON file or upload error', 'error');
+            }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+    };
 
     return (
         <div className="flex h-full w-full bg-[#0d1117] flex-col text-white">
@@ -235,6 +286,11 @@ function Settings() {
                                 <div className="md:col-span-2">
                                     <label className="block text-sm font-medium text-gray-400 mb-1">Send to Email</label>
                                     <input type="email" name="email_to" value={settings.email_to} onChange={handleChange} className="w-full bg-[#0d1117] border border-gray-700 rounded p-2 text-white focus:border-blue-500 focus:outline-none" placeholder="recipient@example.com" />
+                                </div>
+                                <div className="md:col-span-2">
+                                    <label className="block text-sm font-medium text-gray-400 mb-1">From Address (Optional)</label>
+                                    <input type="email" name="email_from" value={settings.email_from} onChange={handleChange} className="w-full bg-[#0d1117] border border-gray-700 rounded p-2 text-white focus:border-blue-500 focus:outline-none" placeholder="no-reply@deltawatch.com" />
+                                    <p className="text-xs text-gray-500 mt-1">Leave empty to use the SMTP username as sender.</p>
                                 </div>
                                 <div className="md:col-span-2">
                                    <button 
@@ -330,6 +386,7 @@ function Settings() {
                             </div>
                         )}
                     </div>
+
                     {/* AI Settings */}
                     <div className="bg-[#161b22] p-6 rounded-lg border border-gray-800 shadow-lg">
                         <div className="flex items-center justify-between mb-4">
@@ -352,7 +409,7 @@ function Settings() {
                                     <div>
                                         <label className="block text-sm font-medium text-gray-400 mb-1">API Key</label>
                                         <input type="text" name="ai_api_key" value={settings.ai_api_key} onChange={handleChange} className="w-full bg-[#0d1117] border border-gray-700 rounded p-2 text-white focus:border-purple-500 focus:outline-none" placeholder="sk-..." />
-                                        <p className="text-xs text-gray-500 mt-1">Found in your <a href="https://platform.openai.com/api-keys" target="_blank" className="text-purple-400 hover:underline">OpenAI Dashboard</a>.</p>
+                                        <p className="text-xs text-gray-500 mt-1">Found in your <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" className="text-purple-400 hover:underline">OpenAI Dashboard</a>.</p>
                                     </div>
                                 )}
                                 <div>
@@ -436,38 +493,13 @@ function Settings() {
                                 <input 
                                     type="file" 
                                     accept=".json" 
-                                    onChange={async (e) => {
-                                        const file = e.target.files[0];
-                                        if (!file) return;
-
-                                        const reader = new FileReader();
-                                        reader.onload = async (event) => {
-                                            try {
-                                                const json = JSON.parse(event.target.result);
-                                                const res = await authFetch(`${API_BASE}/data/import`, {
-                                                    method: 'POST',
-                                                    headers: { 'Content-Type': 'application/json' },
-                                                    body: JSON.stringify(json)
-                                                });
-                                                const data = await res.json();
-                                                if (data.message === 'success') {
-                                                    showToast(`Imported ${data.imported} monitors. Skipped/Failed: ${data.errors}`, 'success');
-                                                } else {
-                                                    showToast(data.error || 'Import failed', 'error');
-                                                }
-                                            } catch (err) {
-                                                console.error(err);
-                                                showToast('Invalid JSON file or upload error', 'error');
-                                            }
-                                        };
-                                        reader.readAsText(file);
-                                        e.target.value = '';
-                                    }} 
+                                    onChange={handleImport} 
                                     className="hidden" 
                                 />
                             </label>
                         </div>
                     </div>
+
                     <div className="flex gap-4 pt-4">
                         <button 
                             onClick={handleSave}
@@ -475,7 +507,6 @@ function Settings() {
                         >
                             <Save size={20} /> Save Settings
                         </button>
-
                     </div>
 
                 </div>

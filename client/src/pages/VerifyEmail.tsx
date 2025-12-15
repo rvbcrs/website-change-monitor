@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 
+type VerifyStatus = 'verifying' | 'success' | 'error';
 
 export default function VerifyEmail() {
     const [searchParams] = useSearchParams();
-    const [status, setStatus] = useState('verifying'); // verifying, success, error
+    const [status, setStatus] = useState<VerifyStatus>('verifying');
     const [message, setMessage] = useState('Verifying your email...');
     const navigate = useNavigate();
     const token = searchParams.get('token');
@@ -34,7 +35,7 @@ export default function VerifyEmail() {
                     setStatus('error');
                     setMessage(data.error || 'Verification failed.');
                 }
-            } catch (e) {
+            } catch {
                 setStatus('error');
                 setMessage('Network error during verification.');
             }

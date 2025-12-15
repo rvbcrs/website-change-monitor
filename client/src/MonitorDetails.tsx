@@ -1,25 +1,64 @@
-import { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, ExternalLink, RefreshCw, Image, FileText, AlertTriangle, Trash2, Play, Download, Filter } from 'lucide-react';
+import { useState, useEffect, type MouseEvent } from 'react';
+import { useParams, Link, useLocation } from 'react-router-dom';
+import { ArrowLeft, ExternalLink, RefreshCw, AlertTriangle, Trash2, Download } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as Diff from 'diff';
 import { useToast } from './contexts/ToastContext';
 import { useDialog } from './contexts/DialogContext';
 import { useAuth } from './contexts/AuthContext';
 
+interface Keyword {
+    text: string;
+    mode: 'appears' | 'disappears' | 'any';
+}
+
+interface HistoryRecord {
+    id: number;
+    status: 'changed' | 'unchanged' | 'error';
+    value?: string;
+    created_at: string;
+    screenshot_path?: string;
+    prev_screenshot_path?: string;
+    diff_screenshot_path?: string;
+    ai_summary?: string;
+    http_status?: number;
+}
+
+interface Monitor {
+    id: number;
+    name?: string;
+    url: string;
+    selector: string;
+    type: 'text' | 'visual';
+    interval: string;
+    last_check?: string;
+    last_value?: string;
+    tags?: string;
+    keywords?: string;
+    unread_count?: number;
+    history: HistoryRecord[];
+}
+
+interface GraphDataPoint {
+    id: number;
+    date: string;
+    timestamp: number;
+    value: number | null;
+    raw: string | undefined;
+}
+
 function MonitorDetails() {
     const { id } = useParams();
-    const navigate = useNavigate();
     const location = useLocation();
     const API_BASE = '';
-    const [monitor, setMonitor] = useState(null);
+    const [monitor, setMonitor] = useState<Monitor | null>(null);
     const [loading, setLoading] = useState(true);
     const [isChecking, setIsChecking] = useState(false);
-    const [history, setHistory] = useState([]);
+    const [history, setHistory] = useState<GraphDataPoint[]>([]);
     const { showToast } = useToast();
-    const { confirm, prompt } = useDialog();
-    const [allTags, setAllTags] = useState([]);
-    const [historyFilter, setHistoryFilter] = useState('all'); // 'all', 'changed', 'unchanged', 'error'
+    const { prompt } = useDialog();
+    const [allTags, setAllTags] = useState<string[]>([]);
+    const [historyFilter, setHistoryFilter] = useState<'all' | 'changed' | 'unchanged' | 'error'>('all');
     const { authFetch } = useAuth();
 
     const fetchMonitor = async (silent = false) => {
@@ -29,27 +68,22 @@ function MonitorDetails() {
             if (res.ok) {
                  const data = await res.json();
                  if (data.message === 'success') {
-                    // Compute all unique tags from all monitors
-                    const tags = [...new Set(data.data.flatMap(m => {
-                        try { return JSON.parse(m.tags || '[]'); } catch { return []; }
-                    }))].sort();
+                    const tags = [...new Set(data.data.flatMap((m: Monitor) => {
+                        try { return JSON.parse(m.tags || '[]') as string[]; } catch { return []; }
+                    }))].sort() as string[];
                     setAllTags(tags);
                     
-                    const found = data.data.find(m => m.id === parseInt(id));
+                    const found = data.data.find((m: Monitor) => m.id === parseInt(id || '0'));
                     if (found) {
                         setMonitor(found);
-                        const graphData = found.history.map(h => {
-                             // Skip errors
+                        const graphData: (GraphDataPoint | null)[] = found.history.map((h: HistoryRecord) => {
                              if (h.status === 'error') return null;
 
-                             // Only attempt numeric parsing for short values that look like numbers/prices
-                             // Long text content should not be graphed
                              let valStr = h.value || "";
-                             if (valStr.length > 50) return null; // Too long to be a simple number/price
+                             if (valStr.length > 50) return null;
                              
-                             // Check if it looks like a number/price (mostly digits, currency symbols, decimals)
                              const numericChars = (valStr.match(/[0-9.,€$£¥%]/g) || []).length;
-                             if (numericChars < valStr.replace(/\s/g, '').length * 0.5) return null; // Less than 50% numeric
+                             if (numericChars < valStr.replace(/\s/g, '').length * 0.5) return null;
                              
                              if (valStr.includes(',') && (!valStr.includes('.') || valStr.indexOf(',') > valStr.lastIndexOf('.'))) {
                                   valStr = valStr.replace(/\./g, '').replace(',', '.');
@@ -65,8 +99,8 @@ function MonitorDetails() {
                                  value: isNaN(val) ? null : val,
                                  raw: h.value
                              };
-                        }).filter(item => item !== null).reverse();
-                        setHistory(graphData);
+                        });
+                        setHistory(graphData.filter((item): item is GraphDataPoint => item !== null).reverse());
                     }
                  }
             }
@@ -79,17 +113,17 @@ function MonitorDetails() {
 
     useEffect(() => {
         fetchMonitor();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
-    // Mark monitor as read when viewing details
     useEffect(() => {
-        if (monitor && monitor.unread_count > 0) {
+        if (monitor && (monitor.unread_count ?? 0) > 0) {
             authFetch(`${API_BASE}/monitors/${id}/read`, { method: 'POST' })
                 .catch(err => console.error('Failed to mark as read:', err));
         }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [monitor?.id]);
 
-    // Scroll to hash anchor when monitor loads
     useEffect(() => {
         if (monitor && location.hash) {
             const el = document.querySelector(location.hash);
@@ -106,12 +140,9 @@ function MonitorDetails() {
     const handleRunCheck = async () => {
         if (isChecking) return;
         setIsChecking(true);
-        console.log('Details: Check clicked');
         
-        console.log('Details: Sending request...');
         try {
             const res = await authFetch(`${API_BASE}/monitors/${id}/check`, { method: 'POST' });
-            console.log('Details: Response status:', res.status);
             if (res.ok) {
                  showToast('Check completed successfully', 'success');
                  await fetchMonitor(true); 
@@ -121,16 +152,15 @@ function MonitorDetails() {
             }
         } catch(e) { 
             console.error(e); 
-            showToast('Error: ' + e.message, 'error'); 
+            showToast('Error: ' + (e instanceof Error ? e.message : 'Unknown'), 'error'); 
         } finally { setIsChecking(false); }
     };
 
-    const handleDeleteHistory = async (historyId, e) => {
+    const handleDeleteHistory = async (historyId: number, e?: MouseEvent) => {
         if (e) {
             e.preventDefault();
             e.stopPropagation();
         }
-        console.log("Attempting to delete history ID:", historyId);
         if (!historyId) {
             showToast("Error: Cannot delete item without an ID.", 'error');
             return;
@@ -141,22 +171,20 @@ function MonitorDetails() {
                 method: 'DELETE',
             });
             if (res.ok) {
-                 const newHistory = monitor.history.filter(h => h.id !== historyId);
-                 setMonitor(prev => ({ ...prev, history: newHistory }));
+                 const newHistory = monitor?.history.filter(h => h.id !== historyId) || [];
+                 setMonitor(prev => prev ? { ...prev, history: newHistory } : null);
                  setHistory(prev => prev.filter(h => h.id !== historyId));
                  showToast('History item deleted', 'success');
             } else {
                 const errText = await res.text();
-                console.error("Delete failed:", errText);
                 showToast("Failed to delete: " + errText, 'error');
             }
         } catch (e) {
-            console.error("Network error deleting:", e);
-            showToast("Network error: " + e.message, 'error');
+            showToast("Network error: " + (e instanceof Error ? e.message : 'Unknown'), 'error');
         }
     };
     
-    const handleDownload = async (format) => {
+    const handleDownload = async (format: 'csv' | 'json') => {
         try {
             const res = await authFetch(`${API_BASE}/monitors/${id}/export/${format}`);
             if (res.ok) {
@@ -178,12 +206,111 @@ function MonitorDetails() {
         }
     }
 
+    const handleRemoveTag = async (tag: string) => {
+        try {
+            const currentTags: string[] = JSON.parse(monitor?.tags || '[]');
+            const newTags = currentTags.filter(t => t !== tag);
+            await authFetch(`${API_BASE}/monitors/${id}/tags`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tags: newTags })
+            });
+            fetchMonitor(true);
+        } catch (e) {
+            console.error('Failed to remove tag:', e);
+        }
+    };
+
+    const handleAddTag = async () => {
+        const currentTags: string[] = (() => { try { return JSON.parse(monitor?.tags || '[]'); } catch { return []; } })();
+        const newTag = await prompt({
+            title: 'Add Tag',
+            message: 'Enter a new tag or select an existing one.',
+            placeholder: 'Type new tag name...',
+            confirmText: 'Add Tag',
+            suggestions: allTags,
+            exclude: currentTags
+        });
+        if (newTag) {
+            try {
+                if (!currentTags.includes(newTag)) {
+                    await authFetch(`${API_BASE}/monitors/${id}/tags`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tags: [...currentTags, newTag] })
+                    });
+                    fetchMonitor(true);
+                    showToast(`Tag "${newTag}" added`, 'success');
+                } else {
+                    showToast('Tag already exists', 'error');
+                }
+            } catch (e) {
+                console.error('Failed to add tag:', e);
+            }
+        }
+    };
+
+    const handleRemoveKeyword = async (idx: number) => {
+        try {
+            const keywords: Keyword[] = JSON.parse(monitor?.keywords || '[]');
+            const newKeywords = keywords.filter((_, i) => i !== idx);
+            await authFetch(`${API_BASE}/monitors/${id}/keywords`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ keywords: newKeywords })
+            });
+            fetchMonitor(true);
+        } catch (e) {
+            console.error('Failed to remove keyword:', e);
+        }
+    };
+
+    const handleAddKeyword = async () => {
+        const text = await prompt({
+            title: 'Add Keyword Alert',
+            message: 'Enter a keyword to watch for.',
+            placeholder: 'e.g. "in stock", "sold out", "error"...',
+            confirmText: 'Add'
+        });
+        if (text) {
+            const mode = await prompt({
+                title: 'Alert Mode',
+                message: 'When should you be alerted?',
+                placeholder: 'appears, disappears, or any',
+                defaultValue: 'appears',
+                confirmText: 'Save',
+                suggestions: ['appears', 'disappears', 'any']
+            });
+            if (mode) {
+                try {
+                    const currentKeywords: Keyword[] = JSON.parse(monitor?.keywords || '[]');
+                    await authFetch(`${API_BASE}/monitors/${id}/keywords`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ keywords: [...currentKeywords, { text, mode }] })
+                    });
+                    fetchMonitor(true);
+                    showToast(`Keyword "${text}" added`, 'success');
+                } catch (e) {
+                    console.error('Failed to add keyword:', e);
+                }
+            }
+        }
+    };
+
     if (loading) return <div className="p-8 text-center text-gray-500">Loading details...</div>;
     if (!monitor) return <div className="p-8 text-center text-red-500">Monitor not found</div>;
 
-    // Only show graph for text monitors with actual numeric values (at least 2 data points)
     const numericValues = history.filter(h => h.value !== null && !isNaN(h.value));
     const showGraph = monitor.type !== 'visual' && monitor.selector !== 'body' && numericValues.length >= 2;
+
+    const monitorTags: string[] = (() => {
+        try { return JSON.parse(monitor.tags || '[]'); } catch { return []; }
+    })();
+
+    const monitorKeywords: Keyword[] = (() => {
+        try { return JSON.parse(monitor.keywords || '[]'); } catch { return []; }
+    })();
 
     return (
         <div className="flex h-full flex-col bg-[#0d1117] text-white p-6 overflow-y-auto">
@@ -194,68 +321,27 @@ function MonitorDetails() {
                 <div className="flex-1">
                     <h1 className="text-2xl font-bold flex items-center gap-2">
                         {monitor.name || "Monitor Details"}
-                        <span className={`px-2 py-0.5 rounded textxs uppercase font-bold tracking-wider border ${monitor.type === 'visual' ? 'bg-blue-900/30 text-blue-400 border-blue-900' : 'bg-green-900/30 text-green-400 border-green-900'}`}>
+                        <span className={`px-2 py-0.5 rounded text-xs uppercase font-bold tracking-wider border ${monitor.type === 'visual' ? 'bg-blue-900/30 text-blue-400 border-blue-900' : 'bg-green-900/30 text-green-400 border-green-900'}`}>
                             {monitor.type}
                         </span>
                     </h1>
                     <a href={monitor.url} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline text-sm flex items-center gap-1">
                         {monitor.url} <ExternalLink size={12} />
                     </a>
-                    {/* Tags */}
                     <div className="flex flex-wrap items-center gap-2 mt-2">
-                        {(() => {
-                            try {
-                                const tags = JSON.parse(monitor.tags || '[]');
-                                return tags.map(tag => (
-                                    <span 
-                                        key={tag} 
-                                        className="px-2 py-0.5 rounded-full text-xs bg-purple-900/30 text-purple-300 border border-purple-800 flex items-center gap-1 cursor-pointer hover:bg-purple-900/50"
-                                        onClick={async () => {
-                                            const newTags = tags.filter(t => t !== tag);
-                                            await authFetch(`${API_BASE}/monitors/${id}/tags`, {
-                                                method: 'PATCH',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ tags: newTags })
-                                            });
-                                            fetchMonitor(true);
-                                        }}
-                                        title="Click to remove"
-                                    >
-                                        {tag} <span className="text-purple-500">×</span>
-                                    </span>
-                                ));
-                            } catch { return null; }
-                        })()}
+                        {monitorTags.map(tag => (
+                            <span 
+                                key={tag} 
+                                className="px-2 py-0.5 rounded-full text-xs bg-purple-900/30 text-purple-300 border border-purple-800 flex items-center gap-1 cursor-pointer hover:bg-purple-900/50"
+                                onClick={() => handleRemoveTag(tag)}
+                                title="Click to remove"
+                            >
+                                {tag} <span className="text-purple-500">×</span>
+                            </span>
+                        ))}
                         <button
                             className="px-2 py-0.5 rounded-full text-xs bg-gray-800 text-gray-400 border border-gray-700 hover:bg-gray-700 hover:text-white"
-                            onClick={async () => {
-                                const currentTags = (() => { try { return JSON.parse(monitor.tags || '[]'); } catch { return []; } })();
-                                const newTag = await prompt({
-                                    title: 'Add Tag',
-                                    message: 'Enter a new tag or select an existing one.',
-                                    placeholder: 'Type new tag name...',
-                                    confirmText: 'Add Tag',
-                                    suggestions: allTags,
-                                    exclude: currentTags
-                                });
-                                if (newTag) {
-                                    try {
-                                        if (!currentTags.includes(newTag)) {
-                                            await authFetch(`${API_BASE}/monitors/${id}/tags`, {
-                                                method: 'PATCH',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ tags: [...currentTags, newTag] })
-                                            });
-                                            fetchMonitor(true);
-                                            showToast(`Tag "${newTag}" added`, 'success');
-                                        } else {
-                                            showToast('Tag already exists', 'error');
-                                        }
-                                    } catch (e) {
-                                        console.error('Failed to add tag:', e);
-                                    }
-                                }
-                            }}
+                            onClick={handleAddTag}
                         >
                             + Add Tag
                         </button>
@@ -273,7 +359,6 @@ function MonitorDetails() {
                     {isChecking ? 'Checking...' : 'Check Now'}
                 </button>
                 
-                {/* Export Dropdown */}
                 <div className="relative group">
                     <button className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded border border-gray-700 transition-colors flex items-center gap-2">
                         <Download size={16} /> Export
@@ -296,7 +381,6 @@ function MonitorDetails() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Stats Card */}
                 <div className={`${showGraph ? 'lg:col-span-1' : 'lg:col-span-3'} space-y-6`}>
                     <div className="bg-[#161b22] p-6 rounded-lg border border-gray-800">
                         <h3 className="text-gray-400 text-sm font-medium mb-4 uppercase tracking-wider">Current Status</h3>
@@ -321,7 +405,7 @@ function MonitorDetails() {
                              <div>
                                 <label className="text-gray-500 text-xs uppercase">Last Check</label>
                                 <div className="text-white">
-                                    {new Date(monitor.last_check).toLocaleString()}
+                                    {monitor.last_check ? new Date(monitor.last_check).toLocaleString() : 'Never'}
                                 </div>
                             </div>
                              <div>
@@ -333,92 +417,43 @@ function MonitorDetails() {
                         </div>
                     </div>
 
-                    {/* Keyword Alerts Card */}
                     <div className="bg-[#161b22] p-6 rounded-lg border border-gray-800 mt-4">
                         <h3 className="text-gray-400 text-sm font-medium mb-4 uppercase tracking-wider flex items-center gap-2">
                             🔑 Keyword Alerts
                         </h3>
                         <p className="text-gray-500 text-xs mb-3">Get notified when specific keywords appear or disappear from this page.</p>
                         
-                        {/* Existing Keywords */}
                         <div className="space-y-2 mb-3">
-                            {(() => {
-                                try {
-                                    const keywords = JSON.parse(monitor.keywords || '[]');
-                                    return keywords.map((kw, idx) => (
-                                        <div key={idx} className="flex items-center gap-2 bg-[#0d1117] rounded-lg p-2 border border-gray-800">
-                                            <span className="flex-1 text-white text-sm">{kw.text}</span>
-                                            <span className={`px-2 py-0.5 rounded text-[10px] uppercase ${
-                                                kw.mode === 'disappears' ? 'bg-red-900/30 text-red-400' : 
-                                                kw.mode === 'any' ? 'bg-yellow-900/30 text-yellow-400' : 
-                                                'bg-green-900/30 text-green-400'
-                                            }`}>
-                                                {kw.mode || 'appears'}
-                                            </span>
-                                            <button
-                                            key={idx}
-                                            onClick={async () => {
-                                                const newKeywords = keywords.filter((_, i) => i !== idx);
-                                                await authFetch(`${API_BASE}/monitors/${id}/keywords`, {
-                                                    method: 'PATCH',
-                                                    headers: { 'Content-Type': 'application/json' },
-                                                    body: JSON.stringify({ keywords: newKeywords })
-                                                });
-                                                fetchMonitor(true);
-                                            }}
-                                            className="text-gray-500 hover:text-red-400 transition-colors"
-                                            title="Remove"
-                                        >
-                                            ×
-                                        </button>
-                                    </div>
-                                ));
-                            } catch { return null; }
-                        })()}
-                    </div>
+                            {monitorKeywords.map((kw, idx) => (
+                                <div key={idx} className="flex items-center gap-2 bg-[#0d1117] rounded-lg p-2 border border-gray-800">
+                                    <span className="flex-1 text-white text-sm">{kw.text}</span>
+                                    <span className={`px-2 py-0.5 rounded text-[10px] uppercase ${
+                                        kw.mode === 'disappears' ? 'bg-red-900/30 text-red-400' : 
+                                        kw.mode === 'any' ? 'bg-yellow-900/30 text-yellow-400' : 
+                                        'bg-green-900/30 text-green-400'
+                                    }`}>
+                                        {kw.mode || 'appears'}
+                                    </span>
+                                    <button
+                                        onClick={() => handleRemoveKeyword(idx)}
+                                        className="text-gray-500 hover:text-red-400 transition-colors"
+                                        title="Remove"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
 
-                    {/* Add Keyword Button */}
-                    <button
-                        className="w-full py-2 border border-dashed border-gray-700 rounded-lg text-gray-500 hover:text-white hover:border-gray-600 transition-colors text-sm"
-                        onClick={async () => {
-                            const text = await prompt({
-                                title: 'Add Keyword Alert',
-                                message: 'Enter a keyword to watch for.',
-                                placeholder: 'e.g. "in stock", "sold out", "error"...',
-                                confirmText: 'Add'
-                            });
-                            if (text) {
-                                const mode = await prompt({
-                                    title: 'Alert Mode',
-                                    message: 'When should you be alerted?',
-                                    placeholder: 'appears, disappears, or any',
-                                    defaultValue: 'appears',
-                                    confirmText: 'Save',
-                                    suggestions: ['appears', 'disappears', 'any']
-                                });
-                                if (mode) {
-                                    try {
-                                        const currentKeywords = JSON.parse(monitor.keywords || '[]');
-                                        await authFetch(`${API_BASE}/monitors/${id}/keywords`, {
-                                            method: 'PATCH',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ keywords: [...currentKeywords, { text, mode }] })
-                                        });
-                                        fetchMonitor(true);
-                                        showToast(`Keyword "${text}" added`, 'success');
-                                    } catch (e) {
-                                        console.error('Failed to add keyword:', e);
-                                    }
-                                }
-                            }
-                        }}
-                    >
-                        + Add Keyword
-                    </button>
+                        <button
+                            className="w-full py-2 border border-dashed border-gray-700 rounded-lg text-gray-500 hover:text-white hover:border-gray-600 transition-colors text-sm"
+                            onClick={handleAddKeyword}
+                        >
+                            + Add Keyword
+                        </button>
                     </div>
                 </div>
 
-                {/* Graph Card */}
                 {showGraph && (
                 <div className="lg:col-span-2 bg-[#161b22] p-6 rounded-lg border border-gray-800 flex flex-col">
                      <h3 className="text-gray-400 text-sm font-medium mb-4 uppercase tracking-wider">Value History</h3>
@@ -442,7 +477,7 @@ function MonitorDetails() {
                                     contentStyle={{ backgroundColor: '#161b22', borderColor: '#30363d', color: '#c9d1d9' }}
                                     itemStyle={{ color: '#58a6ff' }}
                                     labelStyle={{ color: '#8b949e' }}
-                                    formatter={(value) => [value.toLocaleString(), 'Value']}
+                                    formatter={(value: number) => [value.toLocaleString(), 'Value']}
                                 />
                                 <Line 
                                     type="monotone" 
@@ -458,7 +493,6 @@ function MonitorDetails() {
                 </div>
                 )}
 
-                {/* History Timeline */}
                 <div className="lg:col-span-3 bg-[#161b22] px-6 py-6 rounded-lg border border-gray-800">
                     <div className="flex justify-between items-center mb-6 border-b border-gray-800 pb-4">
                         <h3 className="text-white font-bold text-lg">History Timeline</h3>
@@ -491,38 +525,33 @@ function MonitorDetails() {
                     </div>
 
                     <div className="relative">
-                        {/* Vertical Timeline Line */}
                         <div className="absolute left-[11px] top-4 bottom-4 w-0.5 bg-gray-700"></div>
 
                         <div className="space-y-0">
-                            {[...monitor.history].reverse().filter(item => {
+                            {monitor.history.filter(item => {
                                 if (historyFilter === 'all') return true;
                                 if (historyFilter === 'changed') return item.status === 'changed';
                                 if (historyFilter === 'error') return item.status === 'error';
                                 if (historyFilter === 'unchanged') return item.status !== 'changed' && item.status !== 'error';
                                 return true;
-                            }).map((record, i) => {
+                            }).map((record, i, filteredArr) => {
                                  const date = new Date(record.created_at);
                                  const isError = record.status === 'error';
                                  const isChanged = record.status === 'changed';
                                  
-                                 // Status colors
                                  const dotColor = isError ? 'bg-red-500' : isChanged ? 'bg-yellow-500' : 'bg-green-500';
                                  const borderColor = isError ? 'border-l-red-500' : isChanged ? 'border-l-yellow-500' : 'border-l-green-500/50';
                                  const bgHover = isError ? 'hover:bg-red-900/10' : isChanged ? 'hover:bg-yellow-900/10' : 'hover:bg-gray-800/50';
                                  
                                  return (
                                     <div key={record.id || i} id={`history-${record.id}`} className={`relative flex gap-4 py-4 group ${bgHover} rounded-r-md transition-colors`}>
-                                        {/* Timeline Dot */}
                                         <div className="relative z-10 flex-shrink-0">
                                             <div className={`w-6 h-6 rounded-full ${dotColor} border-4 border-[#161b22] flex items-center justify-center`}>
                                                 {isError && <span className="text-[8px] text-white font-bold">!</span>}
                                             </div>
                                         </div>
 
-                                        {/* Content Card */}
                                         <div className={`flex-1 min-w-0 bg-[#0d1117] border border-gray-800 border-l-2 ${borderColor} rounded-md p-4`}>
-                                            {/* Header */}
                                             <div className="flex items-center justify-between mb-3">
                                                 <div className="flex items-center gap-3">
                                                     <span className={`text-sm font-medium ${isError ? 'text-red-400' : isChanged ? 'text-yellow-400' : 'text-green-400'}`}>
@@ -543,7 +572,6 @@ function MonitorDetails() {
                                                 </button>
                                             </div>
 
-                                            {/* Content */}
                                             {isError ? (
                                                 <div className="flex items-start gap-2 text-red-400 text-sm">
                                                     <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
@@ -551,7 +579,6 @@ function MonitorDetails() {
                                                 </div>
                                             ) : (
                                                 <div className="text-gray-300">
-                                                    {/* AI Summary Display */}
                                                     {record.ai_summary && (
                                                         <div className="mb-3 p-3 bg-purple-900/20 border border-purple-900/50 rounded-md">
                                                             <div className="flex items-center gap-2 text-purple-400 text-xs font-bold uppercase tracking-wider mb-1">
@@ -572,7 +599,7 @@ function MonitorDetails() {
                                                                             <span className="text-xs text-gray-500 mb-1 block uppercase tracking-wider">Before</span>
                                                                             <div 
                                                                                 className="w-40 h-28 bg-gray-900 rounded border border-gray-700 overflow-hidden cursor-pointer hover:border-blue-500 transition-colors"
-                                                                                onClick={() => window.open(`${API_BASE}/static/screenshots/${record.prev_screenshot_path.split('/').pop()}`, '_blank')}
+                                                                                onClick={() => window.open(`${API_BASE}/static/screenshots/${record.prev_screenshot_path!.split('/').pop()}`, '_blank')}
                                                                             >
                                                                                 <img src={`${API_BASE}/static/screenshots/${record.prev_screenshot_path.split('/').pop()}`} className="w-full h-full object-cover" />
                                                                             </div>
@@ -582,7 +609,7 @@ function MonitorDetails() {
                                                                         <span className="text-xs text-gray-500 mb-1 block uppercase tracking-wider">After</span>
                                                                         <div 
                                                                             className="w-40 h-28 bg-gray-900 rounded border border-gray-700 overflow-hidden cursor-pointer hover:border-blue-500 transition-colors"
-                                                                            onClick={() => window.open(`${API_BASE}/static/screenshots/${record.screenshot_path.split('/').pop()}`, '_blank')}
+                                                                            onClick={() => window.open(`${API_BASE}/static/screenshots/${record.screenshot_path!.split('/').pop()}`, '_blank')}
                                                                         >
                                                                             <img src={`${API_BASE}/static/screenshots/${record.screenshot_path.split('/').pop()}`} className="w-full h-full object-cover" />
                                                                         </div>
@@ -592,7 +619,7 @@ function MonitorDetails() {
                                                                             <span className="text-xs text-gray-500 mb-1 block uppercase tracking-wider">Diff</span>
                                                                             <div 
                                                                                 className="w-40 h-28 bg-gray-900 rounded border border-gray-700 overflow-hidden cursor-pointer hover:border-blue-500 transition-colors"
-                                                                                onClick={() => window.open(`${API_BASE}/static/screenshots/${record.diff_screenshot_path.split('/').pop()}`, '_blank')}
+                                                                                onClick={() => window.open(`${API_BASE}/static/screenshots/${record.diff_screenshot_path!.split('/').pop()}`, '_blank')}
                                                                             >
                                                                                 <img src={`${API_BASE}/static/screenshots/${record.diff_screenshot_path.split('/').pop()}`} className="w-full h-full object-cover" />
                                                                             </div>
@@ -607,7 +634,7 @@ function MonitorDetails() {
                                                         <div className="space-y-2">
                                                             <div className="flex items-center justify-between">
                                                                 <span className="text-xs text-gray-500 uppercase tracking-wider">Recorded Value</span>
-                                                                {isChanged && i < monitor.history.length - 1 && (
+                                                                {isChanged && i < filteredArr.length - 1 && (
                                                                     <button 
                                                                         onClick={() => {
                                                                             const el = document.getElementById(`diff-${record.id}`);
@@ -623,9 +650,9 @@ function MonitorDetails() {
                                                                 {record.value || <span className="text-gray-500 italic">No text content</span>}
                                                             </div>
                                                             
-                                                            {isChanged && i < monitor.history.length - 1 && (() => {
-                                                                const originalIndex = monitor.history.length - 1 - i;
-                                                                const olderValue = originalIndex > 0 ? monitor.history[originalIndex - 1].value : '';
+                                                            {isChanged && i < filteredArr.length - 1 && (() => {
+                                                                // Get older value (next item in array since we're sorted DESC)
+                                                                const olderValue = filteredArr[i + 1]?.value || '';
                                                                 return (
                                                                 <div id={`diff-${record.id}`} className="hidden mt-3">
                                                                     <span className="text-xs text-gray-500 uppercase tracking-wider block mb-2">Change Diff</span>
@@ -655,8 +682,6 @@ function MonitorDetails() {
                 </div>
 
             </div>
-            
-             {/* Removed old table */}
         </div>
     );
 }

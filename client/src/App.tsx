@@ -14,20 +14,25 @@ import KioskMode from './KioskMode'
 import { ToastProvider } from './contexts/ToastContext'
 import { DialogProvider } from './contexts/DialogContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import type { ReactNode } from 'react'
 
-const ProtectedRoute = ({ children }) => {
+interface RouteProps {
+    children: ReactNode;
+}
+
+const ProtectedRoute = ({ children }: RouteProps) => {
     const { token, loading } = useAuth();
     if (loading) return <div className="min-h-screen bg-[#0d1117] flex items-center justify-center text-[#8b949e]">Loading...</div>;
     if (!token) return <Navigate to="/login" />;
-    return children;
+    return <>{children}</>;
 };
 
 // Route for "public" pages checks if logged in -> redirect to dashboard (optional but nice)
-const PublicRoute = ({ children }) => {
+const PublicRoute = ({ children }: RouteProps) => {
     const { token, loading } = useAuth();
     if (loading) return null;
     if (token) return <Navigate to="/" />;
-    return children;
+    return <>{children}</>;
 };
 
 function App() {

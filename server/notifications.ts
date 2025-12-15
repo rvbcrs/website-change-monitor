@@ -1,17 +1,15 @@
-const fs = require('fs');
-const FormData = require('form-data');
-const nodemailer = require('nodemailer');
-const db = require('./db');
-// import fetch from 'node-fetch'; // If needed for older Node, but usually global fetch in 18+ or generic https
-// We'll use standard https for fewer deps or just standard fetch if available. 
-// Since we don't know node version, let's use 'https' module or stick to dynamic import if needed.
-// actually, for simplicity in "node" environment without "type: module", native fetch is available in Node 18+.
-// If not, we might need a library. 
-// I'll assume Node 18+ for now, or use a simple https helper.
+import fs from 'fs';
+import FormData from 'form-data';
+import nodemailer from 'nodemailer';
+import https from 'https';
+import db from './db';
+import type { Settings } from './types';
 
-const https = require('https');
+interface SendNotificationOptions {
+    type?: 'email' | 'push' | 'webhook';
+}
 
-function sendRequest(url, method, headers, body) {
+function sendRequest(url: string, method: string, headers: Record<string, string | number>, body: string): Promise<string> {
     return new Promise((resolve, reject) => {
         const urlObj = new URL(url);
         const options = {
@@ -23,11 +21,11 @@ function sendRequest(url, method, headers, body) {
 
         const req = https.request(options, (res) => {
             let data = '';
-            res.on('data', chunk => data += chunk);
+            res.on('data', (chunk: Buffer) => data += chunk);
             res.on('end', () => {
                 console.log(`[${method}] ${url} - Status: ${res.statusCode}`);
                 console.log(`Response: ${data}`);
-                if (res.statusCode >= 200 && res.statusCode < 300) {
+                if ((res.statusCode ?? 500) >= 200 && (res.statusCode ?? 500) < 300) {
                     resolve(data);
                 } else {
                     reject(new Error(`Request failed with status ${res.statusCode}: ${data}`));
@@ -35,7 +33,7 @@ function sendRequest(url, method, headers, body) {
             });
         });
 
-        req.on('error', (e) => {
+        req.on('error', (e: Error) => {
             console.error(`Request Error: ${e.message}`);
             reject(e);
         });
@@ -44,19 +42,25 @@ function sendRequest(url, method, headers, body) {
     });
 }
 
-function getSettings() {
+function getSettings(): Promise<Settings> {
     return new Promise((resolve, reject) => {
-        db.get("SELECT * FROM settings WHERE id = 1", (err, row) => {
+        db.get("SELECT * FROM settings WHERE id = 1", (err: Error | null, row: Settings | undefined) => {
             if (err) reject(err);
-            else resolve(row || {});
+            else resolve(row || {} as Settings);
         });
     });
 }
 
-async function sendNotification(subject, message, htmlMessage = null, diff = null, imagePath = null) {
-    let options = {};
-    // Handle overload: if diff is an object and not null, treat as options (assuming diff string is never an object)
-    if (diff && typeof diff === 'object' && !diff.length) { // Check !length to avoid String object edge cases
+async function sendNotification(
+    subject: string, 
+    message: string, 
+    htmlMessage: string | null = null, 
+    diff: string | SendNotificationOptions | null = null, 
+    imagePath: string | null = null
+): Promise<void> {
+    let options: SendNotificationOptions = {};
+    // Handle overload: if diff is an object and not null, treat as options
+    if (diff && typeof diff === 'object') {
         options = diff;
         diff = null;
     }
@@ -64,7 +68,7 @@ async function sendNotification(subject, message, htmlMessage = null, diff = nul
     try {
         const settings = await getSettings();
 
-        const promises = [];
+        const promises: Promise<void>[] = [];
 
         // Check explicit type filter or default to all enabled
         const targetType = options.type;
@@ -74,11 +78,11 @@ async function sendNotification(subject, message, htmlMessage = null, diff = nul
         }
 
         if (settings.push_enabled && (!targetType || targetType === 'push')) {
-            promises.push(sendPush(settings, message, diff, imagePath));
+            promises.push(sendPush(settings, message, diff as string | null, imagePath));
         }
 
         if (settings.webhook_enabled && (!targetType || targetType === 'webhook')) {
-            promises.push(sendWebhook(settings, subject, message, diff));
+            promises.push(sendWebhook(settings, subject, message, diff as string | null));
         }
 
         await Promise.allSettled(promises);
@@ -88,13 +92,13 @@ async function sendNotification(subject, message, htmlMessage = null, diff = nul
     }
 }
 
-async function sendEmail(settings, subject, text, html = null) {
+async function sendEmail(settings: Settings, subject: string, text: string, html: string | null = null): Promise<void> {
     console.log(`Sending Email: ${subject}`);
     try {
         const transporter = nodemailer.createTransport({
             host: settings.email_host,
             port: settings.email_port,
-            secure: settings.email_secure === 1, // true for 465, false for other ports usually
+            secure: settings.email_secure === 1,
             auth: {
                 user: settings.email_user,
                 pass: settings.email_pass
@@ -102,11 +106,11 @@ async function sendEmail(settings, subject, text, html = null) {
         });
 
         await transporter.sendMail({
-            from: settings.email_user, // or specific from address
+            from: settings.email_from || settings.email_user,
             to: settings.email_to,
             subject: subject,
             text: text,
-            html: html || text.replace(/\n/g, '<br>') // Fallback to basic HTML if no custom HTML provided
+            html: html || text.replace(/\n/g, '<br>')
         });
         console.log("Email sent successfully");
     } catch (e) {
@@ -115,13 +119,13 @@ async function sendEmail(settings, subject, text, html = null) {
     }
 }
 
-async function sendPush(settings, message, diff = null, imagePath = null) {
+async function sendPush(settings: Settings, message: string, diff: string | null = null, imagePath: string | null = null): Promise<void> {
     console.log(`Sending Push: ${settings.push_type}`);
     try {
         if (settings.push_type === 'pushover') {
             const form = new FormData();
-            form.append('token', settings.push_key1);
-            form.append('user', settings.push_key2);
+            form.append('token', settings.push_key1 || '');
+            form.append('user', settings.push_key2 || '');
 
             let finalMessage = message;
             // Only append text diff if NO image is provided
@@ -136,15 +140,15 @@ async function sendPush(settings, message, diff = null, imagePath = null) {
                 form.append('attachment', fs.createReadStream(imagePath));
             }
 
-            await new Promise((resolve, reject) => {
+            await new Promise<void>((resolve, reject) => {
                 form.submit('https://api.pushover.net/1/messages.json', (err, res) => {
                     if (err) {
                         console.error('Pushover Submit Error:', err);
                         reject(err);
                         return;
                     }
-                    if (res.statusCode >= 200 && res.statusCode < 300) {
-                        res.resume(); // Consume response data to free up memory
+                    if ((res.statusCode ?? 500) >= 200 && (res.statusCode ?? 500) < 300) {
+                        res.resume();
                         resolve();
                     } else {
                         res.resume();
@@ -154,7 +158,6 @@ async function sendPush(settings, message, diff = null, imagePath = null) {
             });
 
         } else if (settings.push_type === 'telegram') {
-            // https://core.telegram.org/bots/api#sendmessage
             const botToken = settings.push_key1;
             const chatId = settings.push_key2;
             const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
@@ -167,7 +170,7 @@ async function sendPush(settings, message, diff = null, imagePath = null) {
             const body = JSON.stringify({
                 chat_id: chatId,
                 text: finalMessage,
-                parse_mode: 'HTML' // Enable HTML for Telegram too
+                parse_mode: 'HTML'
             });
 
             await sendRequest(url, 'POST', {
@@ -181,16 +184,16 @@ async function sendPush(settings, message, diff = null, imagePath = null) {
     }
 }
 
-async function sendWebhook(settings, subject, message, diff = null) {
+async function sendWebhook(settings: Settings, subject: string, message: string, diff: string | null = null): Promise<void> {
     if (!settings.webhook_url) return;
     console.log(`Sending Webhook: ${settings.webhook_url}`);
 
     const payload = {
         title: subject,
         message: message,
-        diff: diff, // Optional text diff
+        diff: diff,
         timestamp: new Date().toISOString(),
-        monitor: subject.replace('Change Detected: ', '').replace('Downtime Alert: ', '') // Simple extraction
+        monitor: subject.replace('Change Detected: ', '').replace('Downtime Alert: ', '')
     };
 
     const body = JSON.stringify(payload);
@@ -207,4 +210,4 @@ async function sendWebhook(settings, subject, message, diff = null) {
     }
 }
 
-module.exports = { sendNotification };
+export { sendNotification };

@@ -1,5 +1,5 @@
 // DeltaWatch Service Worker
-const CACHE_NAME = 'deltawatch-v1';
+const CACHE_NAME = 'deltawatch-v3';
 const STATIC_ASSETS = [
     '/',
     '/manifest.json',
@@ -38,11 +38,14 @@ self.addEventListener('fetch', (event) => {
     // Skip non-GET requests
     if (event.request.method !== 'GET') return;
 
-    // API requests: Network only (no caching)
+    // API and dynamic requests: Network only (no caching)
     if (url.pathname.startsWith('/api') ||
         url.pathname.startsWith('/monitors') ||
         url.pathname.startsWith('/settings') ||
-        url.pathname.startsWith('/static')) {
+        url.pathname.startsWith('/static') ||
+        url.pathname.startsWith('/proxy') ||
+        url.pathname.startsWith('/preview-scenario') ||
+        url.pathname.startsWith('/run-scenario-live')) {
         return;
     }
 

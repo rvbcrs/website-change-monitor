@@ -1,5 +1,16 @@
-import React, { useEffect, useState } from 'react';
-import { AlertTriangle, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
+
+interface ConfirmDialogProps {
+    title?: string;
+    message?: string;
+    confirmText?: string;
+    cancelText?: string;
+    type?: 'danger' | 'warning' | 'info';
+    danger?: boolean;
+    onConfirm: () => void;
+    onCancel: () => void;
+}
 
 const ConfirmDialog = ({ 
     title = 'Confirm Action', 
@@ -9,14 +20,14 @@ const ConfirmDialog = ({
     type = 'danger', // danger, warning, info
     onConfirm, 
     onCancel 
-}) => {
+}: ConfirmDialogProps) => {
     const [isVisible, setIsVisible] = useState(false);
 
     useEffect(() => {
         requestAnimationFrame(() => setIsVisible(true));
     }, []);
 
-    const handleClose = (callback) => {
+    const handleClose = (callback: () => void) => {
         setIsVisible(false);
         setTimeout(callback, 200);
     };

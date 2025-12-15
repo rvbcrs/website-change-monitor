@@ -1,10 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from './contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { X, ExternalLink, Clock, AlertTriangle, CheckCircle, Wifi, Monitor } from 'lucide-react';
+import { X, Clock, AlertTriangle, CheckCircle, Wifi, Monitor } from 'lucide-react';
+
+interface HistoryItem {
+    http_status?: number;
+    status?: string;
+}
+
+interface KioskMonitor {
+    id: number;
+    name: string;
+    url: string;
+    type: 'text' | 'visual';
+    active: boolean;
+    last_check?: string;
+    last_value?: string;
+    last_screenshot?: string;
+    selector_text?: string;
+    history?: HistoryItem[];
+}
 
 export default function KioskMode() {
-    const [monitors, setMonitors] = useState([]);
+    const [monitors, setMonitors] = useState<KioskMonitor[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [loading, setLoading] = useState(true);
     const [time, setTime] = useState(new Date());
@@ -22,6 +40,7 @@ export default function KioskMode() {
         // Clock
         const clockInterval = setInterval(() => setTime(new Date()), 1000);
         return () => clearInterval(clockInterval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
@@ -42,6 +61,7 @@ export default function KioskMode() {
         }, REFRESH_INTERVAL);
 
         return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentIndex, monitors]);
 
     const fetchMonitors = async () => {
@@ -50,7 +70,7 @@ export default function KioskMode() {
             const data = await res.json();
             if (data.message === 'success') {
                 // Only show active monitors
-                const active = data.data.filter(m => m.active);
+                const active = data.data.filter((m: KioskMonitor) => m.active);
                 setMonitors(active);
             }
         } catch (e) {
@@ -74,14 +94,13 @@ export default function KioskMode() {
 
     const currentMonitor = monitors[currentIndex];
     const isUp = currentMonitor.history && currentMonitor.history.length > 0 
-        ? currentMonitor.history[0].http_status < 400 
+        ? (currentMonitor.history[0].http_status ?? 0) < 400 
         : true; // Default to true if no history
     
     // Calculate global stats
-    const totalMonitors = monitors.length;
     const errorCount = monitors.filter(m => {
         if (!m.history || m.history.length === 0) return false;
-        return m.history[0].http_status >= 400 || m.history[0].status === 'error';
+        return (m.history[0].http_status ?? 0) >= 400 || m.history[0].status === 'error';
     }).length;
 
     return (
@@ -136,7 +155,7 @@ export default function KioskMode() {
                                     className="object-contain w-full h-full"
                                 />
                                 <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-4 py-2 rounded-lg border border-white/10 text-white font-mono text-sm">
-                                    Last Check: {new Date(currentMonitor.last_check).toLocaleTimeString()}
+                                    Last Check: {currentMonitor.last_check ? new Date(currentMonitor.last_check).toLocaleTimeString() : 'Never'}
                                 </div>
                             </div>
                         ) : (

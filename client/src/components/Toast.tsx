@@ -1,7 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CheckCircle, AlertCircle, Info, X } from 'lucide-react';
 
-const Toast = ({ message, type, onClose }) => {
+interface ToastProps {
+    id?: number;
+    message: string;
+    type: 'success' | 'error' | 'info';
+    onClose: () => void;
+}
+
+const Toast = ({ message, type, onClose }: ToastProps) => {
     const [isVisible, setIsVisible] = useState(false);
 
     useEffect(() => {

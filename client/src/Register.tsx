@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useAuth } from './contexts/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { useToast } from './contexts/ToastContext';
@@ -20,7 +20,7 @@ export default function Register() {
             .catch(() => {});
     }, []);
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
         if (password !== confirmPassword) {
             showToast('Passwords do not match', 'error');

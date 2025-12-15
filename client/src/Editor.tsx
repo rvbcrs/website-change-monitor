@@ -1,53 +1,69 @@
 // Editor doesn't use Layout! Removing the import which is causing issues.
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, type KeyboardEvent } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useToast } from './contexts/ToastContext';
-import { ArrowLeft, Save, Play, Image, FileText, Check, AlertCircle, MousePointerClick, Bell, Brain } from 'lucide-react';
+import { ArrowLeft, Image, FileText, MousePointerClick, Bell, Brain } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
+
+interface SelectedElement {
+    selector: string;
+    text: string;
+}
+
+interface NotifyConfig {
+    method: string;
+    threshold: string;
+}
+
+interface MessageEvent extends Event {
+    data: {
+        type: string;
+        payload: unknown;
+    };
+}
 
 function Editor() {
   console.log("Editor Component Loaded - Cache Bust");
   const API_BASE = '';
   const [url, setUrl] = useState('')
   const [proxyUrl, setProxyUrl] = useState('')
-  const [selectedElement, setSelectedElement] = useState(null)
-  const [interval, setInterval] = useState('1h')
+  const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null)
+  const [interval, setIntervalValue] = useState('1h')
   const navigate = useNavigate()
   const { id } = useParams()
-  const [monitorType, setMonitorType] = useState('text'); // 'text' or 'visual'
+  const [monitorType, setMonitorType] = useState<'text' | 'visual'>('text');
   const { showToast } = useToast();
   const { authFetch } = useAuth();
   
-  const [isSelecting, setIsSelecting] = useState(true); // Default to selection mode
+  const [isSelecting, setIsSelecting] = useState(true);
 
   const [name, setName] = useState('')
-  const [notifyConfig, setNotifyConfig] = useState({ method: 'all', threshold: '' });
+  const [notifyConfig, setNotifyConfig] = useState<NotifyConfig>({ method: 'all', threshold: '' });
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiOnlyVisual, setAiOnlyVisual] = useState(false);
 
   const [searchParams] = useSearchParams();
+  const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
     if (id) {
-        // Fetch existing monitor
         const fetchMonitor = async () => {
             try {
                 const response = await authFetch(`${API_BASE}/monitors`);
                 const data = await response.json();
                 if (data.message === 'success') {
-                    const monitor = data.data.find(m => m.id == id);
+                    const monitor = data.data.find((m: { id: number }) => m.id == Number(id));
                     if (monitor) {
                         setUrl(monitor.url);
                         setName(monitor.name || '');
-                        setInterval(monitor.interval);
+                        setIntervalValue(monitor.interval);
                         setMonitorType(monitor.type);
                         setAiPrompt(monitor.ai_prompt || '');
                         setAiOnlyVisual(!!monitor.ai_only_visual);
                         
-                        // Parse JSON fields
                         try {
                             if (monitor.notify_config) setNotifyConfig(JSON.parse(monitor.notify_config));
-                        } catch(e) {}
+                        } catch {}
                         
                         if (monitor.selector) {
                             setSelectedElement({
@@ -56,7 +72,6 @@ function Editor() {
                             });
                         }
                         
-                        // Set proxy after data load
                         setProxyUrl(`${API_BASE}/proxy?url=${encodeURIComponent(monitor.url)}`);
                     } else {
                         showToast('Monitor not found', 'error');
@@ -70,7 +85,6 @@ function Editor() {
         };
         fetchMonitor();
     } else {
-        // Check for URL query params (from Extension Auto-Config)
         const paramUrl = searchParams.get('url');
         const paramName = searchParams.get('name');
         const paramSelector = searchParams.get('selector');
@@ -81,36 +95,38 @@ function Editor() {
             setProxyUrl(`${API_BASE}/proxy?url=${encodeURIComponent(paramUrl)}`);
         }
         if (paramName) setName(paramName);
-        if (paramType) setMonitorType(paramType);
+        if (paramType) setMonitorType(paramType as 'text' | 'visual');
         if (paramSelector) {
             setSelectedElement({ selector: paramSelector, text: 'Auto-detected' });
         }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, searchParams])
 
   useEffect(() => {
-    const handleMessage = (event) => {
-      const { type, payload } = event.data;
+    const handleMessage = (event: Event) => {
+      const msgEvent = event as unknown as MessageEvent;
+      const { type, payload } = msgEvent.data;
       if (type === 'selected') {
         console.log('Selected:', payload)
-        setSelectedElement(payload)
+        setSelectedElement(payload as SelectedElement)
       } else if (type === 'deselected') {
           if (selectedElement && selectedElement.selector === payload) {
               setSelectedElement(null)
           }
       } else if (type === 'navigate') {
           console.log("Navigating to:", payload);
-          setProxyUrl(`${API_BASE}/proxy?url=${encodeURIComponent(payload)}`);
+          setProxyUrl(`${API_BASE}/proxy?url=${encodeURIComponent(payload as string)}`);
           showToast('Navigating...', 'info');
       } else if (type === 'TEST_SELECTOR_RESULT') {
-          // Handle test selector result
-          if (payload.found) {
-              showToast(`✅ Found ${payload.count} element${payload.count > 1 ? 's' : ''}`, 'success');
+          const result = payload as { found?: boolean; count?: number; text?: string; error?: string };
+          if (result.found) {
+              showToast(`✅ Found ${result.count} element${(result.count ?? 0) > 1 ? 's' : ''}`, 'success');
               if (selectedElement) {
-                  setSelectedElement(prev => ({ ...prev, text: payload.text }));
+                  setSelectedElement(prev => prev ? { ...prev, text: result.text || '' } : null);
               }
-          } else if (payload.error) {
-              showToast(`❌ Invalid selector: ${payload.error}`, 'error');
+          } else if (result.error) {
+              showToast(`❌ Invalid selector: ${result.error}`, 'error');
           } else {
               showToast(`❌ No elements found`, 'error');
           }
@@ -119,20 +135,18 @@ function Editor() {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedElement]);
 
   useEffect(() => {
-    // Sync selection mode with iframe
-    const iframe = document.querySelector('iframe');
+    const iframe = document.querySelector('iframe') as HTMLIFrameElement | null;
     if (iframe && iframe.contentWindow) {
         iframe.contentWindow.postMessage({ 
             type: 'set_mode', 
             payload: { active: isSelecting } 
         }, '*');
     }
-  }, [isSelecting, proxyUrl]); // Send when mode changes or url loads;
-
-  const [isLoading, setIsLoading] = useState(false)
+  }, [isSelecting, proxyUrl]);
 
   const handleGo = async () => {
     if (!url) return;
@@ -158,8 +172,8 @@ function Editor() {
             body: JSON.stringify({
                 name,
                 url,
-                selector: monitorType === 'text' ? selectedElement.selector : '',
-                selector_text: monitorType === 'text' ? selectedElement.text : '',
+                selector: monitorType === 'text' && selectedElement ? selectedElement.selector : '',
+                selector_text: monitorType === 'text' && selectedElement ? selectedElement.text : '',
                 interval,
                 type: monitorType,
                 notify_config: notifyConfig,
@@ -176,16 +190,14 @@ function Editor() {
         }
     } catch (e) {
         console.error(e);
-        showToast('Error saving monitor: ' + e.message, 'error');
+        showToast('Error saving monitor: ' + (e instanceof Error ? e.message : 'Unknown error'), 'error');
     }
   }
 
-  // Effect to highlight element when iframe loads
   useEffect(() => {
      if (proxyUrl && selectedElement && id && monitorType === 'text') {
-         // Only highlight on initial load/url change, not on every selection change
          const timer = setTimeout(() => {
-             const iframe = document.querySelector('iframe');
+             const iframe = document.querySelector('iframe') as HTMLIFrameElement | null;
              if (iframe && iframe.contentWindow) {
                  iframe.contentWindow.postMessage({
                      type: 'highlight',
@@ -195,9 +207,10 @@ function Editor() {
          }, 2000); 
          return () => clearTimeout(timer);
      }
-  }, [proxyUrl, id]); // Removed selectedElement to prevent echo loop
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proxyUrl, id]);
 
-  const getUiMode = () => {
+  const getUiMode = (): 'visual' | 'text_page' | 'text_element' => {
     if (monitorType === 'visual') return 'visual';
     if (monitorType === 'text') {
         if (selectedElement && selectedElement.selector === 'body') return 'text_page';
@@ -206,11 +219,80 @@ function Editor() {
     return 'text_element';
   };
 
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') handleGo();
+  };
+
+  const handleAiAnalyze = async () => {
+    if (!url) return;
+    setIsLoading(true);
+    setProxyUrl(`${API_BASE}/proxy?url=${encodeURIComponent(url)}`);
+    
+    showToast("✨ AI is analyzing page...", "info");
+    
+    try {
+        const res = await authFetch(`${API_BASE}/api/ai/analyze-page`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, prompt: aiPrompt })
+        });
+        const data = await res.json();
+        if (data.data) {
+            const { name: aiName, selector, type } = data.data;
+            setName(aiName);
+            if (selector) {
+                setSelectedElement({ selector, text: 'Auto-detected by AI' });
+                setMonitorType(type || 'text');
+            }
+            showToast("✨ Configuration applied!", "success");
+        } else {
+            showToast("AI couldn't find a good config.", "error");
+        }
+    } catch (e) {
+        showToast("AI Analysis failed: " + (e instanceof Error ? e.message : 'Unknown error'), "error");
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
+  const handleTestSelector = () => {
+    const iframe = document.querySelector('iframe') as HTMLIFrameElement | null;
+    if (iframe && selectedElement) {
+        iframe.contentWindow?.postMessage({
+            type: 'TEST_SELECTOR',
+            payload: selectedElement.selector
+        }, '*');
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedElement(null);
+    const iframe = document.querySelector('iframe') as HTMLIFrameElement | null;
+    if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({ type: 'clear' }, '*');
+    }
+  };
+
+  const handleIframeLoad = (e: React.SyntheticEvent<HTMLIFrameElement>) => {
+    const iframe = e.currentTarget;
+    iframe.contentWindow?.postMessage({ 
+        type: 'set_mode', 
+        payload: { active: isSelecting } 
+    }, '*');
+    
+    if (selectedElement && monitorType === 'text') {
+        iframe.contentWindow?.postMessage({
+             type: 'highlight',
+             payload: selectedElement.selector
+        }, '*');
+    }
+    setIsLoading(false);
+  };
+
   return (
     <div className="flex h-screen w-full bg-[#0d1117] flex-col text-white">
       <header className="bg-[#161b22] p-4 shadow-md flex flex-col space-y-4 z-30 relative border-b border-gray-800">
         <div className="flex flex-col md:flex-row items-center justify-between w-full max-w-6xl mx-auto gap-4">
-             {/* Left: Back + Title */}
              <div className="flex items-center w-full md:w-auto gap-4">
                <button onClick={() => navigate('/')} className="text-gray-400 hover:text-white transition-colors">
                   <ArrowLeft />
@@ -220,9 +302,7 @@ function Editor() {
                </h1>
              </div>
              
-             {/* Right: Controls */}
              <div className="flex flex-col md:flex-row items-center w-full gap-4 md:flex-1 md:justify-end flex-wrap">
-               {/* Mode Switcher */}
                <div className="flex bg-[#0d1117] rounded-lg p-1 border border-gray-700 w-full md:w-auto justify-center">
                    <button 
                        onClick={() => { setMonitorType('visual'); setSelectedElement(null); }}
@@ -259,7 +339,7 @@ function Editor() {
                      className="flex-1 p-2 bg-[#0d1117] border border-gray-700 text-white rounded focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-600 min-w-0"
                      value={url}
                      onChange={(e) => setUrl(e.target.value)}
-                     onKeyDown={(e) => e.key === 'Enter' && handleGo()}
+                     onKeyDown={handleKeyDown}
                    />
                    <button 
                      onClick={handleGo}
@@ -271,39 +351,8 @@ function Editor() {
                      ) : 'Go'}
                    </button>
                    
-                   {/* AI Magic Button */}
                    <button
-                        onClick={async () => {
-                            if (!url) return;
-                            setIsLoading(true);
-                            setProxyUrl(`${API_BASE}/proxy?url=${encodeURIComponent(url)}`);
-                            
-                            showToast("✨ AI is analyzing page...", "info");
-                            
-                            try {
-                                const res = await authFetch(`${API_BASE}/api/ai/analyze-page`, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ url, prompt: aiPrompt })
-                                });
-                                const data = await res.json();
-                                if (data.data) {
-                                    const { name, selector, type } = data.data;
-                                    setName(name);
-                                    if (selector) {
-                                        setSelectedElement({ selector, text: 'Auto-detected by AI' });
-                                        setMonitorType(type || 'text');
-                                    }
-                                    showToast("✨ Configuration applied!", "success");
-                                } else {
-                                    showToast("AI couldn't find a good config.", "error");
-                                }
-                            } catch (e) {
-                                showToast("AI Analysis failed: " + e.message, "error");
-                            } finally {
-                                setIsLoading(false);
-                            }
-                        }}
+                        onClick={handleAiAnalyze}
                         disabled={!url || isLoading}
                         title="Magic Create: Auto-fill Name & Selector"
                         className={`px-3 py-2 rounded font-medium transition flex items-center justify-center gap-2 ${!url || isLoading ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-500 text-white'}`}
@@ -314,7 +363,6 @@ function Editor() {
              </div>
         </div>
         
-        {/* Helper Text */}
         <div className="w-full max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between text-sm text-gray-400 gap-4 opacity-50 hover:opacity-100 transition-opacity duration-300">
             <div className="w-full md:w-auto">
                 {monitorType === 'text' ? (
@@ -325,15 +373,8 @@ function Editor() {
                         </p>
                         
                      <div className="flex bg-[#21262d] rounded-lg p-1 overflow-x-auto max-w-full">
-                            {/* Clear Button */}
                             <button 
-                                onClick={() => {
-                                    setSelectedElement(null);
-                                    const iframe = document.querySelector('iframe');
-                                    if (iframe && iframe.contentWindow) {
-                                        iframe.contentWindow.postMessage({ type: 'clear' }, '*');
-                                    }
-                                }}
+                                onClick={handleClearSelection}
                                 className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-900/30 transition-all mr-2 border-r border-gray-700 pr-3"
                                 title="Clear Selection"
                             >
@@ -362,7 +403,6 @@ function Editor() {
             </div>
              <div className="flex items-center justify-between w-full md:w-auto gap-4">
                  
-                 {/* Notification Rules */}
                  <div className="flex items-center gap-2">
                      <Bell size={16} className="text-gray-400" />
                      <select 
@@ -389,7 +429,6 @@ function Editor() {
                      )}
                  </div>
 
-                 {/* AI Prompt Input */}
                  <div className="flex items-center gap-2 border-l border-gray-700 pl-4">
                      <Brain size={16} className="text-purple-400" />
                      <input 
@@ -406,7 +445,7 @@ function Editor() {
                      <label className="text-gray-400 text-sm whitespace-nowrap">Check Every:</label>
                      <select 
                          value={interval} 
-                         onChange={(e) => setInterval(e.target.value)}
+                         onChange={(e) => setIntervalValue(e.target.value)}
                          className="bg-[#0d1117] border border-gray-700 text-white rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
                      >
                          <option value="1m">1m</option>
@@ -442,15 +481,7 @@ function Editor() {
                         placeholder="CSS Selector"
                     />
                     <button
-                        onClick={() => {
-                            const iframe = document.querySelector('iframe');
-                            if (iframe) {
-                                iframe.contentWindow.postMessage({
-                                    type: 'TEST_SELECTOR',
-                                    payload: selectedElement.selector
-                                }, '*');
-                            }
-                        }}
+                        onClick={handleTestSelector}
                         className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-500 transition whitespace-nowrap"
                         title="Test selector and highlight matching element"
                     >
@@ -462,7 +493,6 @@ function Editor() {
                     <p className="p-2 bg-[#0d1117] rounded border border-gray-700 mt-1 text-sm text-gray-200">{selectedElement.text || <span className="text-gray-500 italic">No text content</span>}</p>
                 </div>
                 
-                {/* AI-Only Detection Toggle */}
                 <div className="mb-4 p-3 bg-[#0d1117] rounded border border-gray-700">
                     <label className="flex items-center gap-2 cursor-pointer">
                         <input 
@@ -475,7 +505,6 @@ function Editor() {
                     </label>
                     <p className="text-xs text-gray-500 mt-1">Only notify when AI determines the change is meaningful</p>
                 </div>
-                {/* Removed duplicate Interval and Save controls */}
             </div>
         )}
 
@@ -491,7 +520,6 @@ function Editor() {
                    </div>
                 )}
                 
-                {/* Visual/Page Mode Overlay */}
                 {(monitorType === 'visual' || (monitorType === 'text' && selectedElement && selectedElement.selector === 'body')) && !isLoading && proxyUrl && (
                     <div className="absolute inset-0 z-20 bg-blue-900/10 pointer-events-auto flex items-center justify-center backdrop-blur-[1px] border-4 border-blue-500/50">
                         <div className="bg-[#161b22] p-6 rounded-lg shadow-2xl border border-blue-500/50 text-center max-w-md">
@@ -520,22 +548,7 @@ function Editor() {
                 className="w-full h-full border-0"
                 title="Website Preview"
                 sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-                onLoad={(e) => {
-                    // Sync mode whenever page loads/navigates
-                    e.target.contentWindow.postMessage({ 
-                        type: 'set_mode', 
-                        payload: { active: isSelecting } 
-                    }, '*');
-                    
-                    // Also re-send highlight if needed
-                    if (selectedElement && monitorType === 'text') {
-                        e.target.contentWindow.postMessage({
-                             type: 'highlight',
-                             payload: selectedElement.selector
-                        }, '*');
-                    }
-                    setIsLoading(false); // Keep this from original iframe
-                }}
+                onLoad={handleIframeLoad}
              />
              {!proxyUrl && (
                  <div className="absolute inset-0 flex items-center justify-center text-gray-400">
