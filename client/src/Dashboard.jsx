@@ -174,9 +174,24 @@ const Dashboard = () => {
     : monitors;
     return (
     <div className="h-full flex flex-col">
-       <div className="flex justify-between items-center mb-6">
-            <div className="flex items-center gap-4">
-                <h1 className="text-2xl font-bold text-white tracking-tight">Deltas</h1>
+       {/* Header - Mobile Responsive */}
+       <div className="flex flex-col gap-3 mb-6">
+            {/* Row 1: Title + New Button */}
+            <div className="flex justify-between items-center">
+                <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight">Deltas</h1>
+                <Link 
+                    to="/new" 
+                    className="group relative inline-flex items-center gap-1.5 px-3 py-2 md:px-5 md:py-2.5 bg-[#238636] hover:bg-[#2ea043] text-white rounded-lg font-semibold text-xs md:text-sm transition-all shadow-lg hover:shadow-green-900/30 border border-transparent hover:border-green-400/30 overflow-hidden flex-shrink-0"
+                >
+                     <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out"></div>
+                    <Plus size={16} className="relative z-10" /> 
+                    <span className="relative z-10 hidden sm:inline">Nieuwe Delta</span>
+                    <span className="relative z-10 sm:hidden">Nieuw</span>
+                </Link>
+            </div>
+            
+            {/* Row 2: Controls */}
+            <div className="flex items-center gap-2 flex-wrap">
                 <button 
                     onClick={() => setShowStats(!showStats)}
                     className={`p-1.5 rounded-md transition-all ${showStats ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-800 text-gray-500 hover:text-gray-300'}`}
@@ -191,31 +206,22 @@ const Dashboard = () => {
                 >
                     <ExternalLink size={18} />
                 </Link>
-                <div className="h-6 w-px bg-gray-800 mx-2"></div>
+                <div className="h-6 w-px bg-gray-700 mx-1"></div>
                 <div className="flex bg-gray-800 rounded-lg p-0.5">
                     <button
                         onClick={() => setGroupBy('none')}
-                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${groupBy === 'none' ? 'bg-[#161b22] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${groupBy === 'none' ? 'bg-[#161b22] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}
                     >
                         Lijst
                     </button>
                     <button
                         onClick={() => setGroupBy('type')}
-                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${groupBy === 'type' ? 'bg-[#161b22] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${groupBy === 'type' ? 'bg-[#161b22] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}
                     >
                         Groep
                     </button>
                 </div>
             </div>
-            
-            <Link 
-                to="/new" 
-                className="group relative inline-flex items-center gap-2 px-5 py-2.5 bg-[#238636] hover:bg-[#2ea043] text-white rounded-lg font-semibold text-sm transition-all shadow-lg hover:shadow-green-900/30 hover:-translate-y-0.5 border border-transparent hover:border-green-400/30 overflow-hidden"
-            >
-                 <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out"></div>
-                <Plus size={18} className="relative z-10" /> 
-                <span className="relative z-10">Nieuwe Delta</span>
-            </Link>
         </div>
 
         <div className={`transition-all duration-300 ease-in-out overflow-hidden ${showStats ? 'max-h-[500px] opacity-100 mb-6' : 'max-h-0 opacity-0 mb-0'}`}>
