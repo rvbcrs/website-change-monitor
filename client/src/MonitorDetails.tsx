@@ -398,7 +398,7 @@ function MonitorDetails() {
                                     </div>
                                 ) : (
                                     <div className="text-2xl font-mono text-white break-all">
-                                        {monitor.last_value || "No Data"}
+                                        {monitor.last_value?.replace(/\s+/g, '') || "No Data"}
                                     </div>
                                 )}
                             </div>
@@ -647,7 +647,7 @@ function MonitorDetails() {
                                                                 )}
                                                             </div>
                                                             <div className="p-3 bg-gray-900/50 rounded border border-gray-800 font-mono text-xs overflow-x-auto whitespace-pre-wrap max-h-32 overflow-y-auto">
-                                                                {record.value || <span className="text-gray-500 italic">No text content</span>}
+                                                                {record.value?.replace(/\s+/g, '') || <span className="text-gray-500 italic">No text content</span>}
                                                             </div>
                                                             
                                                             {isChanged && i < filteredArr.length - 1 && (() => {
