@@ -169,13 +169,22 @@ The Chrome extension allows you to create monitors directly from any webpage:
 
 ## API Documentation
 
-Interactive API documentation is available at `/api/docs` when the server is running.
+Interactive API documentation powered by [Scalar](https://scalar.com) is available at `/api/docs` when the server is running.
+
+![Scalar](https://img.shields.io/badge/Scalar-API_Docs-blue?style=flat&logo=swagger&logoColor=white)
+
+The documentation provides:
+- **Interactive API Explorer** - Test endpoints directly in the browser
+- **OpenAPI 3.0 Spec** - Available at `/api/openapi.json`
+- **Request/Response Examples** - Complete schema documentation
 
 ### Key Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/api/auth/login` | User login |
+| `POST` | `/api/auth/register` | User registration |
+| `GET` | `/api/health` | Server health check |
 | `GET` | `/monitors` | List all monitors |
 | `POST` | `/monitors` | Create new monitor |
 | `POST` | `/monitors/:id/check` | Trigger manual check |
