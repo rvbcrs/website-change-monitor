@@ -5,13 +5,7 @@ import { Trash2, Edit, Plus, ExternalLink, Pause, Play, RefreshCw, Layout, Copy,
 import { useToast } from './contexts/ToastContext'
 import { useDialog } from './contexts/DialogContext'
 import { useAuth } from './contexts/AuthContext'
-
-interface HistoryItem {
-    id: number;
-    http_status: number | null;
-    status: 'unchanged' | 'changed' | 'error';
-    created_at: string;
-}
+import { timeAgo, formatDate, type HistoryRecord } from '@deltawatch/shared'
 
 interface Monitor {
     id: number;
@@ -25,25 +19,9 @@ interface Monitor {
     last_check?: string;
     last_screenshot?: string;
     tags?: string;
-    history?: HistoryItem[];
+    history?: Array<HistoryRecord & { http_status: number | null }>;
     unread_count?: number;
 }
-
-const timeAgo = (dateParam: string | Date | null | undefined): string | null => {
-    if (!dateParam) return null;
-    const date = typeof dateParam === 'object' ? dateParam : new Date(dateParam);
-    const today = new Date();
-    const seconds = Math.round((today.getTime() - date.getTime()) / 1000);
-    const minutes = Math.round(seconds / 60);
-    const hours = Math.round(minutes / 60);
-    const days = Math.round(hours / 24);
-
-    if (seconds < 5) return 'just now';
-    if (seconds < 60) return `${seconds}s ago`;
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    return `${days}d ago`;
-};
 
 const TimeAgo = ({ date }: { date: string | null | undefined }) => {
     const timeString = timeAgo(date);
@@ -230,17 +208,8 @@ const Dashboard = () => {
       showToast('Monitor exported', 'success');
   }
 
-  const formatDate = (dateString: string | null | undefined): string => {
-      if (!dateString) return 'Unknown Date';
-      try {
-          const isoString = dateString.toString().replace(' ', 'T');
-          const date = new Date(isoString);
-          if (isNaN(date.getTime())) return 'Invalid Date';
-          return date.toLocaleString();
-      } catch {
-          return 'Error Date';
-      }
-  }
+
+
 
   const allTags = [...new Set(monitors.flatMap(m => {
     try { return JSON.parse(m.tags || '[]') as string[]; } catch { return []; }

@@ -5,7 +5,7 @@
     "description": "DeltaWatch - Website Change Monitoring Platform",
     "scripts": {
         "dev": "pnpm -r --parallel dev",
-        "dev:web": "pnpm --filter @deltawatch/web dev",
+        "dev:web": "pnpm --filter @deltawatch/web-client dev",
         "dev:mobile": "pnpm --filter @deltawatch/mobile start",
         "build": "pnpm -r build",
         "build:shared": "pnpm --filter @deltawatch/shared build",
@@ -14,5 +14,11 @@
     "engines": {
         "node": ">=20"
     },
-    "packageManager": "pnpm@9.0.0"
+    "packageManager": "pnpm@9.0.0",
+    "pnpm": {
+        "overrides": {
+            "@types/react": "^18.3.27",
+            "@types/react-dom": "^18.3.7"
+        }
+    }
 }
