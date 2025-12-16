@@ -1,16 +1,15 @@
 version: '3.8'
 
 services:
-  website-monitor:
-    # build: .
-    image: website-monitor:latest
+  deltawatch:
+    image: deltawatch:latest
     pull_policy: never
-    container_name: website-change-monitor
+    container_name: deltawatch
     restart: unless-stopped
     ports:
-      - "3005:3000"
+      - "3000:3000"
     environment:
       - NODE_ENV=production
-      - DATA_DIR=/app/server/data
+      - DATA_DIR=/app/apps/web/server/data
     volumes:
-      - ./server/data:/app/server/data
+      - ./apps/web/server/data:/app/apps/web/server/data
