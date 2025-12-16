@@ -1,10 +1,13 @@
 // DeltaWatch Service Worker
-const CACHE_NAME = 'deltawatch-v3';
+const CACHE_NAME = 'deltawatch-v4';
 const STATIC_ASSETS = [
     '/',
     '/manifest.json',
     '/favicon.svg',
-    '/logo_128.png'
+    '/logo_128.png',
+    '/logo_192.png',
+    '/logo_512.png',
+    '/apple-touch-icon.png'
 ];
 
 // Install: Cache static assets
