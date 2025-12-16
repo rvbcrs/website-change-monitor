@@ -11,5 +11,6 @@ services:
       - "3005:3000"
     environment:
       - NODE_ENV=production
+      - DATA_DIR=/app/server/data
     volumes:
       - ./server/data:/app/server/data

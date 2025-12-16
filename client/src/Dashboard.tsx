@@ -1,7 +1,7 @@
 import StatsOverview, { type StatsOverviewRef } from './components/StatsOverview'
 import { useState, useEffect, useRef, type MouseEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Trash2, Edit, Plus, ExternalLink, Pause, Play, RefreshCw, Layout } from 'lucide-react'
+import { Trash2, Edit, Plus, ExternalLink, Pause, Play, RefreshCw, Layout, Copy, Download, Search, X } from 'lucide-react'
 import { useToast } from './contexts/ToastContext'
 import { useDialog } from './contexts/DialogContext'
 import { useAuth } from './contexts/AuthContext'
@@ -56,6 +56,7 @@ const Dashboard = () => {
   const [checkingMonitors, setCheckingMonitors] = useState<Set<number>>(new Set())
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
   const [showStats, setShowStats] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
   const [groupBy, setGroupBy] = useState<'none' | 'type'>('none')
   const navigate = useNavigate()
   const { showToast } = useToast()
@@ -172,6 +173,63 @@ const Dashboard = () => {
       }
   }
 
+  const handleDuplicate = async (monitor: Monitor, e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      try {
+          const newMonitor = {
+              url: monitor.url,
+              selector: monitor.selector,
+              selector_text: monitor.selector_text,
+              type: monitor.type,
+              interval: monitor.interval,
+              name: `${monitor.name || 'Monitor'} (Copy)`,
+              tags: monitor.tags,
+          };
+          
+          const res = await authFetch(`${API_BASE}/monitors`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(newMonitor)
+          });
+          
+          if (res.ok) {
+              await fetchMonitors();
+              showToast('Monitor duplicated successfully', 'success');
+              statsRef.current?.refresh();
+          } else {
+              throw new Error('Failed to duplicate');
+          }
+      } catch {
+          showToast('Failed to duplicate monitor', 'error');
+      }
+  }
+
+  const handleExport = (monitor: Monitor, e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
+      const exportData = {
+          url: monitor.url,
+          selector: monitor.selector,
+          selector_text: monitor.selector_text,
+          type: monitor.type,
+          interval: monitor.interval,
+          name: monitor.name,
+          tags: monitor.tags,
+      };
+      
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${monitor.name || 'monitor'}-export.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Monitor exported', 'success');
+  }
+
   const formatDate = (dateString: string | null | undefined): string => {
       if (!dateString) return 'Unknown Date';
       try {
@@ -188,14 +246,23 @@ const Dashboard = () => {
     try { return JSON.parse(m.tags || '[]') as string[]; } catch { return []; }
   }))].sort();
 
-  const filteredMonitors = selectedTag 
-    ? monitors.filter(m => {
-        try { 
-          const tags = JSON.parse(m.tags || '[]') as string[];
-          return tags.includes(selectedTag);
-        } catch { return false; }
-      })
-    : monitors;
+  const filteredMonitors = monitors.filter(m => {
+      // Filter by tag
+      if (selectedTag) {
+          try { 
+              const tags = JSON.parse(m.tags || '[]') as string[];
+              if (!tags.includes(selectedTag)) return false;
+          } catch { return false; }
+      }
+      // Filter by search query
+      if (searchQuery) {
+          const query = searchQuery.toLowerCase();
+          const nameMatch = (m.name || '').toLowerCase().includes(query);
+          const urlMatch = m.url.toLowerCase().includes(query);
+          if (!nameMatch && !urlMatch) return false;
+      }
+      return true;
+  });
 
     const renderMonitorCard = (monitor: Monitor) => (
         <Link 
@@ -340,6 +407,12 @@ const Dashboard = () => {
                     >
                         {!monitor.active ? <Play size={16} fill="currentColor" /> : <Pause size={16} />}
                     </button>
+                    <button onClick={(e) => handleDuplicate(monitor, e)} className="p-2 text-gray-400 hover:text-blue-400 bg-gray-800 hover:bg-gray-700 rounded transition-colors" title="Duplicate">
+                        <Copy size={16} />
+                    </button>
+                    <button onClick={(e) => handleExport(monitor, e)} className="p-2 text-gray-400 hover:text-green-400 bg-gray-800 hover:bg-gray-700 rounded transition-colors" title="Export">
+                        <Download size={16} />
+                    </button>
                  </div>
             </div>
         </Link>
@@ -390,6 +463,25 @@ const Dashboard = () => {
                     >
                         Groep
                     </button>
+                </div>
+                <div className="h-6 w-px bg-gray-700 mx-1"></div>
+                <div className="relative flex-1 max-w-xs">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                    <input
+                        type="text"
+                        placeholder="Zoek monitors..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-8 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
+                    />
+                    {searchQuery && (
+                        <button 
+                            onClick={() => setSearchQuery('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"
+                        >
+                            <X size={14} />
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

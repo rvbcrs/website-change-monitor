@@ -72,7 +72,7 @@ function restoreOptions() {
 async function handleLogin() {
     const email = document.getElementById('loginEmail').value;
     const password = document.getElementById('loginPassword').value;
-    const serverUrl = document.getElementById('serverUrl').value.replace(/\\/$ /, '');
+    const serverUrl = document.getElementById('serverUrl').value.replace(/\/$/, '');
 
     if (!email || !password) {
         showStatus('Please enter email and password', 'error');
@@ -113,7 +113,7 @@ function handleLogout() {
 }
 
 async function saveOptions() {
-    const url = document.getElementById('serverUrl').value.replace(/\\/$ /, '');
+    const url = document.getElementById('serverUrl').value.replace(/\/$/, '');
     if (!url.startsWith('http')) {
         showStatus('Invalid URL', 'error');
         return;
