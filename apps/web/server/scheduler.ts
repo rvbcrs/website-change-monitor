@@ -137,30 +137,22 @@ async function checkSingleMonitor(monitor: Monitor, context: BrowserContext | nu
     const monitorName = monitor.name || `Monitor ${monitor.id}`;
     console.log(`[${monitorName}] Checking: ${monitor.url}`);
 
-    let internalBrowser: Browser | null = null;
+    let pooledContext: { context: BrowserContext; release: () => Promise<void> } | null = null;
+    let page: Page | undefined;
+    
+    // Acquire browser from pool if not provided
     if (!context) {
         try {
-            const settings = await new Promise<Settings>((resolve) => 
-                db.get("SELECT * FROM settings WHERE id = 1", (err: Error | null, row: Settings) => resolve(row || {} as Settings))
-            );
-            const launchOptions: LaunchOptions = { headless: true };
-            if (settings.proxy_enabled && settings.proxy_server) {
-                launchOptions.proxy = { server: settings.proxy_server };
-                if (settings.proxy_auth) {
-                    const [username, password] = settings.proxy_auth.split(':');
-                    launchOptions.proxy.username = username;
-                    launchOptions.proxy.password = password;
-                }
-            }
-            internalBrowser = await chromium.launch(launchOptions);
-            context = await internalBrowser.newContext();
-        } catch (e) {
-            console.error("Browser Launch Error:", e);
+            const { acquireBrowser } = await import('./browserPool');
+            pooledContext = await acquireBrowser();
+            context = pooledContext.context;
+        } catch (e: any) {
+            console.error("Browser Pool Error:", e.message);
+            db.run(`INSERT INTO check_history (monitor_id, status, response_time, created_at, value) VALUES (?, ?, ?, ?, ?)`, [monitor.id, 'error', 0, new Date().toISOString(), `Browser Error: ${e.message}`]);
             return;
         }
     }
 
-    let page: Page | undefined;
     let httpStatus: number | null = null;
     let screenshotPath: string = '';
     
@@ -713,7 +705,7 @@ async function checkSingleMonitor(monitor: Monitor, context: BrowserContext | nu
         db.run(`INSERT INTO check_history (monitor_id, status, response_time, created_at, value) VALUES (?, ?, ?, ?, ?)`, [monitor.id, 'error', 0, new Date().toISOString(), error.message]);
     } finally {
         if (page) await page.close();
-        if (internalBrowser) await internalBrowser.close();
+        if (pooledContext) await pooledContext.release();
     }
 }
 
