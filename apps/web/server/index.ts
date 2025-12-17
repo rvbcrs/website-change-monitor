@@ -1,7 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { chromium } from 'playwright-extra';
-import type { BrowserContext } from 'playwright-core';
+import type { BrowserContext, ConsoleMessage, Request as PlaywrightRequest } from 'playwright-core';
 import stealth from 'puppeteer-extra-plugin-stealth';
 import path from 'path';
 import fs from 'fs';
@@ -603,12 +603,12 @@ app.get('/proxy', async (req: Request, res: Response) => {
 
         const page = await context.newPage();
 
-        page.on('console', msg => {
+        page.on('console', (msg: ConsoleMessage) => {
             if (msg.type() === 'error' || msg.type() === 'warning') {
                 console.log(`[Browser ${msg.type().toUpperCase()}] ${msg.text()}`);
             }
         });
-        page.on('requestfailed', request => {
+        page.on('requestfailed', (request: PlaywrightRequest) => {
             if (request.url().includes('google') || request.url().includes('doubleclick')) return;
             console.log(`[Browser Network Error] ${request.url()} : ${request.failure()?.errorText}`);
         });

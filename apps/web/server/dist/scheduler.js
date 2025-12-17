@@ -374,22 +374,32 @@ async function checkSingleMonitor(monitor, context = null) {
                 let diffHtml = '';
                 let diffText = '';
                 if (text !== monitor.last_value) {
-                    const diffResult = Diff.diffLines(monitor.last_value || '', text || '');
-                    diffHtml = '<div style="font-family: monospace; background: #f6f8fa; padding: 10px; border-radius: 5px;">';
+                    const diffResult = Diff.diffWordsWithSpace(monitor.last_value || '', text || '');
+                    diffHtml = '<div style="font-family: monospace; background: #f6f8fa; padding: 10px; border-radius: 5px; border: 1px solid #eaecef; white-space: pre-wrap; line-height: 1.5;">';
                     diffResult.forEach(part => {
+                        const isChange = part.added || part.removed;
+                        // Heuristic: If it's context (unchanged) and very long, truncate the middle
+                        let value = part.value;
+                        if (!isChange && value.length > 200) {
+                            value = value.substring(0, 80) + ' ... ' + value.substring(value.length - 80);
+                        }
                         const color = part.added ? '#e6ffec' :
                             part.removed ? '#ffebe9' : 'transparent';
                         const textColor = part.added ? '#1a7f37' :
-                            part.removed ? '#cf222e' : '#24292f';
-                        if (part.added || part.removed) {
-                            diffHtml += `<span style="background-color: ${color}; color: ${textColor}; display: block; white-space: pre-wrap;">${part.value}</span>`;
+                            part.removed ? '#cf222e' : '#57606a';
+                        const fontWeight = isChange ? 'bold' : 'normal';
+                        const textDecoration = part.removed ? 'line-through' : 'none';
+                        diffHtml += `<span style="background-color: ${color}; color: ${textColor}; font-weight: ${fontWeight}; text-decoration: ${textDecoration};">${value}</span>`;
+                        // Accumulate plaintext diff
+                        if (isChange) {
                             const prefix = part.added ? '+ ' : '- ';
-                            const lines = part.value.split('\n');
-                            lines.forEach(line => {
-                                if (line.trim() !== '') {
-                                    diffText += `${prefix}${line}\n`;
-                                }
-                            });
+                            // Simplify plaintext diff for words - maybe just show the words?
+                            // Or keep the line-based text diff for push notifications?
+                            // Let's keep it simple: push notifications get a simplified summary
+                            if (part.added)
+                                diffText += `+ ${part.value} `;
+                            if (part.removed)
+                                diffText += `- ${part.value} `;
                         }
                     });
                     diffHtml += '</div>';
@@ -406,17 +416,37 @@ async function checkSingleMonitor(monitor, context = null) {
                     aiSummary = await (0, ai_1.summarizeChange)(monitor.last_value || null, text);
                 }
                 console.log(`AI Summary Result: '${aiSummary}'`);
+                let aiSummaryHtml = '';
                 if (aiSummary) {
-                    finalChangeMsg = `🤖 AI Summary: ${aiSummary}`;
+                    finalChangeMsg += `\n\n🤖 AI Summary: ${aiSummary}`;
+                    aiSummaryHtml = `
+                        <div style="border: 2px solid #8B5CF6; border-radius: 8px; padding: 16px; margin: 16px 0; background-color: #F5F3FF; color: #4C1D95; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+                            <div style="font-weight: bold; margin-bottom: 8px; font-size: 1.1em; display: flex; align-items: center;">
+                                <span style="font-size: 1.4em; margin-right: 8px;">🤖</span> AI Summary
+                            </div>
+                            <div style="line-height: 1.6;">${aiSummary.replace(/\n/g, '<br>')}</div>
+                        </div>
+                    `;
                 }
                 const subject = `DW: ${identifier}`;
-                const message = `Change detected for ${identifier}.\n\n${finalChangeMsg}\n\nURL: ${monitor.url}`;
+                const message = `Change detected for ${identifier}.\n\n${changeMsg}${aiSummary ? `\n\n🤖 AI Summary: ${aiSummary}` : ''}\n\nURL: ${monitor.url}`;
                 const htmlMessage = `
-                    <h2>DW: ${identifier}</h2>
-                    <p><strong>URL:</strong> <a href="${monitor.url}">${monitor.url}</a></p>
-                    <p>${finalChangeMsg}</p>
-                    ${diffHtml ? `<h3>Text Changes:</h3>${diffHtml}` : ''}
-                    <p><small>Sent by DeltaWatch</small></p>
+                    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
+                        <h2 style="color: #1a1a1a; padding-bottom: 10px; border-bottom: 1px solid #eaecef;">DW: ${identifier}</h2>
+                        
+                        <p style="margin: 15px 0;"><strong>URL:</strong> <a href="${monitor.url}" style="color: #0969da; text-decoration: none;">${monitor.url}</a></p>
+                        
+                        ${aiSummaryHtml}
+                        
+                        <p style="color: #444; margin: 15px 0;"><strong>Detection:</strong> ${changeMsg}</p>
+                        
+                        ${diffHtml ? `
+                            <h3 style="margin-top: 20px; color: #1a1a1a;">Text Changes:</h3>
+                            ${diffHtml}
+                        ` : ''}
+                        
+                        <p style="margin-top: 30px; color: #666; font-size: 12px; border-top: 1px solid #eaecef; padding-top: 10px;">Sent by DeltaWatch</p>
+                    </div>
                 `;
                 let diffImagePath = null;
                 const renderSettings = await new Promise((resolve) => db_1.default.get("SELECT * FROM settings WHERE id = 1", (err, row) => resolve(row || {})));

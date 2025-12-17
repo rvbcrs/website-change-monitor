@@ -84,29 +84,20 @@ app.use('/api/', generalLimiter);
 // Apply stricter limit to auth routes
 app.use('/auth/', authLimiter);
 app.use('/api/auth/', authLimiter);
-// Scalar API Documentation (loaded dynamically for ESM compatibility)
+// Scalar API Documentation
+const express_api_reference_1 = require("@scalar/express-api-reference");
 const openApiSpec = JSON.parse(fs_1.default.readFileSync(path_1.default.join(__dirname, 'openapi.json'), 'utf-8'));
+app.use('/api/docs', (0, express_api_reference_1.apiReference)({
+    spec: {
+        content: openApiSpec,
+    },
+    theme: 'deepSpace',
+    layout: 'modern',
+}));
 // Serve OpenAPI spec as JSON
 app.get('/api/openapi.json', (req, res) => {
     res.json(openApiSpec);
 });
-// Setup Scalar docs
-(async () => {
-    try {
-        const { apiReference } = await Promise.resolve().then(() => __importStar(require('@scalar/express-api-reference')));
-        app.use('/api/docs', apiReference({
-            spec: {
-                content: openApiSpec,
-            },
-            theme: 'deepSpace',
-            layout: 'modern',
-        }));
-        console.log('Scalar API docs available at /api/docs');
-    }
-    catch (e) {
-        console.warn('Could not load Scalar API docs:', e);
-    }
-})();
 // Global Request Logger
 app.use((req, res, next) => {
     console.log(`[Request] ${req.method} ${req.url}`);
@@ -560,12 +551,12 @@ app.get('/proxy', async (req, res) => {
             }
         }
         const page = await context.newPage();
-        page.on('console', msg => {
+        page.on('console', (msg) => {
             if (msg.type() === 'error' || msg.type() === 'warning') {
                 console.log(`[Browser ${msg.type().toUpperCase()}] ${msg.text()}`);
             }
         });
-        page.on('requestfailed', request => {
+        page.on('requestfailed', (request) => {
             if (request.url().includes('google') || request.url().includes('doubleclick'))
                 return;
             console.log(`[Browser Network Error] ${request.url()} : ${request.failure()?.errorText}`);
