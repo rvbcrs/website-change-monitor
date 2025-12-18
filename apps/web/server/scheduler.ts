@@ -4,8 +4,9 @@ import type { BrowserContext, Page, Browser } from 'playwright-core';
 import stealth from 'puppeteer-extra-plugin-stealth';
 import fs from 'fs';
 import path from 'path';
-import { PNG } from 'pngjs';
 import * as Diff from 'diff';
+import { cleanValue } from '@deltawatch/shared';
+import { PNG } from 'pngjs';
 import db from './db';
 import { sendNotification } from './notifications';
 import { summarizeChange, summarizeVisualChange, findSelector } from './ai';
@@ -288,6 +289,10 @@ async function checkSingleMonitor(monitor: Monitor, context: BrowserContext | nu
                     } catch (e) { return null; }
                 }, monitor.selector);
 
+                if (text) {
+                    text = cleanValue(text);
+                }
+
                 if (text && text.trim().length > 0) break;
                 if (attempt === 3) break;
 
@@ -495,13 +500,13 @@ async function checkSingleMonitor(monitor: Monitor, context: BrowserContext | nu
                             <html>
                             <body style="background-color: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; padding: 20px;">
                                 <h3 style="color: #fff; border-bottom: 1px solid #30363d; padding-bottom: 10px;">${identifier}</h3>
-                                <div style="font-family: monospace; white-space: pre-wrap; font-size: 14px;">
-                                ${diffHtml}
-                                </div>
+                                <div style="font-family: monospace; white-space: pre-wrap; font-size: 12px;">${diffHtml}</div>
                             </body>
                             </html>
                         `;
+                        
                         await renderPage.setContent(htmlContent);
+
                         const boundingBox = await renderPage.evaluate(() => {
                             const body = document.body;
                             return { height: body.scrollHeight };

@@ -33,7 +33,10 @@ interface GraphDataPoint {
     raw: string | undefined;
 }
 
+import { useTranslation } from 'react-i18next';
+
 function MonitorDetails() {
+    const { t } = useTranslation();
     const { id } = useParams();
     const location = useLocation();
     const API_BASE = '';
@@ -130,15 +133,15 @@ function MonitorDetails() {
         try {
             const res = await authFetch(`${API_BASE}/monitors/${id}/check`, { method: 'POST' });
             if (res.ok) {
-                 showToast('Check completed successfully', 'success');
+                 showToast(t('monitor_details.toasts.check_success'), 'success');
                  await fetchMonitor(true); 
             } else {
                 const err = await res.text();
-                showToast('Error running check: ' + err, 'error');
+                showToast(t('monitor_details.toasts.check_error', { error: err }), 'error');
             }
         } catch(e) { 
             console.error(e); 
-            showToast('Error: ' + (e instanceof Error ? e.message : 'Unknown'), 'error'); 
+            showToast(t('monitor_details.toasts.check_generic_error', { error: (e instanceof Error ? e.message : 'Unknown') }), 'error'); 
         } finally { setIsChecking(false); }
     };
 
@@ -148,7 +151,7 @@ function MonitorDetails() {
             e.stopPropagation();
         }
         if (!historyId) {
-            showToast("Error: Cannot delete item without an ID.", 'error');
+            showToast(t('monitor_details.toasts.delete_error_no_id'), 'error');
             return;
         }
         
@@ -160,13 +163,13 @@ function MonitorDetails() {
                  const newHistory = monitor?.history.filter(h => h.id !== historyId) || [];
                  setMonitor(prev => prev ? { ...prev, history: newHistory } : null);
                  setHistory(prev => prev.filter(h => h.id !== historyId));
-                 showToast('History item deleted', 'success');
+                 showToast(t('monitor_details.toasts.history_deleted'), 'success');
             } else {
                 const errText = await res.text();
-                showToast("Failed to delete: " + errText, 'error');
+                showToast(t('monitor_details.toasts.delete_failed', { error: errText }), 'error');
             }
         } catch (e) {
-            showToast("Network error: " + (e instanceof Error ? e.message : 'Unknown'), 'error');
+            showToast(t('monitor_details.toasts.network_error', { error: (e instanceof Error ? e.message : 'Unknown') }), 'error');
         }
     };
     
@@ -184,11 +187,11 @@ function MonitorDetails() {
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
             } else {
-                showToast('Export failed', 'error');
+                showToast(t('monitor_details.toasts.export_failed'), 'error');
             }
         } catch (e) {
             console.error(e);
-            showToast('Export error', 'error');
+            showToast(t('monitor_details.toasts.export_error'), 'error');
         }
     }
 
@@ -210,10 +213,10 @@ function MonitorDetails() {
     const handleAddTag = async () => {
         const currentTags: string[] = (() => { try { return JSON.parse(monitor?.tags || '[]'); } catch { return []; } })();
         const newTag = await prompt({
-            title: 'Add Tag',
-            message: 'Enter a new tag or select an existing one.',
+            title: t('monitor_details.add_tag_title'),
+            message: t('monitor_details.add_tag_msg'),
             placeholder: 'Type new tag name...',
-            confirmText: 'Add Tag',
+            confirmText: t('monitor_details.add_tag'),
             suggestions: allTags,
             exclude: currentTags
         });
@@ -226,9 +229,9 @@ function MonitorDetails() {
                         body: JSON.stringify({ tags: [...currentTags, newTag] })
                     });
                     fetchMonitor(true);
-                    showToast(`Tag "${newTag}" added`, 'success');
+                    showToast(t('monitor_details.toasts.tag_added', { tag: newTag }), 'success');
                 } else {
-                    showToast('Tag already exists', 'error');
+                    showToast(t('monitor_details.toasts.tag_exists'), 'error');
                 }
             } catch (e) {
                 console.error('Failed to add tag:', e);
@@ -253,15 +256,15 @@ function MonitorDetails() {
 
     const handleAddKeyword = async () => {
         const text = await prompt({
-            title: 'Add Keyword Alert',
-            message: 'Enter a keyword to watch for.',
+            title: t('monitor_details.add_keyword_title'),
+            message: t('monitor_details.add_keyword_msg'),
             placeholder: 'e.g. "in stock", "sold out", "error"...',
             confirmText: 'Add'
         });
         if (text) {
             const mode = await prompt({
-                title: 'Alert Mode',
-                message: 'When should you be alerted?',
+                title: t('monitor_details.alert_mode'),
+                message: t('monitor_details.alert_mode_msg'),
                 placeholder: 'appears, disappears, or any',
                 defaultValue: 'appears',
                 confirmText: 'Save',
@@ -276,7 +279,7 @@ function MonitorDetails() {
                         body: JSON.stringify({ keywords: [...currentKeywords, { text, mode }] })
                     });
                     fetchMonitor(true);
-                    showToast(`Keyword "${text}" added`, 'success');
+                    showToast(t('monitor_details.toasts.keyword_added', { keyword: text }), 'success');
                 } catch (e) {
                     console.error('Failed to add keyword:', e);
                 }
@@ -320,7 +323,7 @@ function MonitorDetails() {
                                 key={tag} 
                                 className="px-2 py-0.5 rounded-full text-xs bg-purple-900/30 text-purple-300 border border-purple-800 flex items-center gap-1 cursor-pointer hover:bg-purple-900/50"
                                 onClick={() => handleRemoveTag(tag)}
-                                title="Click to remove"
+                                title={t('monitor_details.remove_tag')}
                             >
                                 {tag} <span className="text-purple-500">×</span>
                             </span>
@@ -329,12 +332,12 @@ function MonitorDetails() {
                             className="px-2 py-0.5 rounded-full text-xs bg-gray-800 text-gray-400 border border-gray-700 hover:bg-gray-700 hover:text-white"
                             onClick={handleAddTag}
                         >
-                            + Add Tag
+                            + {t('monitor_details.add_tag')}
                         </button>
                     </div>
                 </div>
                 <Link to={`/edit/${monitor.id}`} className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded border border-gray-700 transition-colors">
-                    Edit
+                    {t('monitor_details.edit')}
                 </Link>
                 <button 
                     onClick={handleRunCheck} 
@@ -342,25 +345,25 @@ function MonitorDetails() {
                     className={`bg-[#1f6feb] hover:bg-blue-600 text-white px-4 py-2 rounded border border-blue-600 transition-colors flex items-center gap-2 ${isChecking ? 'opacity-75 cursor-not-allowed' : ''}`}
                 >
                     <RefreshCw size={16} className={isChecking ? 'animate-spin' : ''} /> 
-                    {isChecking ? 'Checking...' : 'Check Now'}
+                    {isChecking ? t('monitor_details.checking') : t('monitor_details.check_now')}
                 </button>
                 
                 <div className="relative group">
                     <button className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded border border-gray-700 transition-colors flex items-center gap-2">
-                        <Download size={16} /> Export
+                        <Download size={16} /> {t('monitor_details.export')}
                     </button>
                     <div className="absolute right-0 mt-1 w-40 bg-[#161b22] border border-gray-700 rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
                         <button 
                             onClick={() => handleDownload('csv')}
                             className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-white rounded-t-lg"
                         >
-                            📊 Export as CSV
+                            📊 {t('monitor_details.export_csv')}
                         </button>
                         <button 
                             onClick={() => handleDownload('json')}
                             className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-white rounded-b-lg"
                         >
-                            📋 Export as JSON
+                            📋 {t('monitor_details.export_json')}
                         </button>
                     </div>
                 </div>
@@ -369,11 +372,11 @@ function MonitorDetails() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className={`${showGraph ? 'lg:col-span-1' : 'lg:col-span-3'} space-y-6`}>
                     <div className="bg-[#161b22] p-6 rounded-lg border border-gray-800">
-                        <h3 className="text-gray-400 text-sm font-medium mb-4 uppercase tracking-wider">Current Status</h3>
+                        <h3 className="text-gray-400 text-sm font-medium mb-4 uppercase tracking-wider">{t('monitor_details.current_status')}</h3>
                         
                         <div className="space-y-4">
                             <div>
-                                <label className="text-gray-500 text-xs uppercase">Latest Value</label>
+                                <label className="text-gray-500 text-xs uppercase">{t('monitor_details.latest_value')}</label>
                                 {monitor.selector === 'body' && monitor.last_value ? (
                                     <div className="text-base text-white">
                                         Full Page Content ({monitor.last_value.length} chars)
@@ -389,13 +392,13 @@ function MonitorDetails() {
                                 )}
                             </div>
                              <div>
-                                <label className="text-gray-500 text-xs uppercase">Last Check</label>
+                                <label className="text-gray-500 text-xs uppercase">{t('monitor_details.last_check')}</label>
                                 <div className="text-white">
                                     {monitor.last_check ? new Date(monitor.last_check).toLocaleString() : 'Never'}
                                 </div>
                             </div>
                              <div>
-                                <label className="text-gray-500 text-xs uppercase">Interval</label>
+                                <label className="text-gray-500 text-xs uppercase">{t('monitor_details.interval')}</label>
                                 <div className="text-white">
                                     {monitor.interval}
                                 </div>
@@ -405,9 +408,9 @@ function MonitorDetails() {
 
                     <div className="bg-[#161b22] p-6 rounded-lg border border-gray-800 mt-4">
                         <h3 className="text-gray-400 text-sm font-medium mb-4 uppercase tracking-wider flex items-center gap-2">
-                            🔑 Keyword Alerts
+                            🔑 {t('monitor_details.keyword_alerts')}
                         </h3>
-                        <p className="text-gray-500 text-xs mb-3">Get notified when specific keywords appear or disappear from this page.</p>
+                        <p className="text-gray-500 text-xs mb-3">{t('monitor_details.keyword_desc')}</p>
                         
                         <div className="space-y-2 mb-3">
                             {monitorKeywords.map((kw, idx) => (
@@ -418,7 +421,7 @@ function MonitorDetails() {
                                         kw.mode === 'any' ? 'bg-yellow-900/30 text-yellow-400' : 
                                         'bg-green-900/30 text-green-400'
                                     }`}>
-                                        {kw.mode || 'appears'}
+                                        {t(`monitor_details.${kw.mode}` as any) || kw.mode}
                                     </span>
                                     <button
                                         onClick={() => handleRemoveKeyword(idx)}
@@ -435,14 +438,14 @@ function MonitorDetails() {
                             className="w-full py-2 border border-dashed border-gray-700 rounded-lg text-gray-500 hover:text-white hover:border-gray-600 transition-colors text-sm"
                             onClick={handleAddKeyword}
                         >
-                            + Add Keyword
+                            + {t('monitor_details.add_keyword')}
                         </button>
                     </div>
                 </div>
 
                 {showGraph && (
                 <div className="lg:col-span-2 bg-[#161b22] p-6 rounded-lg border border-gray-800 flex flex-col">
-                     <h3 className="text-gray-400 text-sm font-medium mb-4 uppercase tracking-wider">Value History</h3>
+                     <h3 className="text-gray-400 text-sm font-medium mb-4 uppercase tracking-wider">{t('monitor_details.value_history')}</h3>
                      <div className="flex-1 min-h-[300px]">
                         <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={history}>
@@ -460,7 +463,7 @@ function MonitorDetails() {
                                     tickFormatter={(val) => val.toLocaleString()}
                                 />
                                 <Tooltip 
-                                    contentStyle={{ backgroundColor: '#161b22', borderColor: '#30363d', color: '#c9d1d9' }}
+                                    contentStyle={{ backgroundColor: '#161b22', borderColor: '#30363d', color: '#c9d1d9', whiteSpace: 'nowrap' }}
                                     itemStyle={{ color: '#58a6ff' }}
                                     labelStyle={{ color: '#8b949e' }}
                                     formatter={(value?: number) => [(value ?? 0).toLocaleString(), 'Value']}
@@ -481,31 +484,31 @@ function MonitorDetails() {
 
                 <div className="lg:col-span-3 bg-[#161b22] px-6 py-6 rounded-lg border border-gray-800">
                     <div className="flex justify-between items-center mb-6 border-b border-gray-800 pb-4">
-                        <h3 className="text-white font-bold text-lg">History Timeline</h3>
+                        <h3 className="text-white font-bold text-lg">{t('monitor_details.history_timeline')}</h3>
                         <div className="flex items-center gap-2">
                             <button 
                                 onClick={() => setHistoryFilter('all')}
                                 className={`px-3 py-1 rounded-full text-xs font-medium transition-colors border ${historyFilter === 'all' ? 'bg-blue-600 text-white border-blue-500' : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700'}`}
                             >
-                                All
+                                {t('monitor_details.all')}
                             </button>
                             <button 
                                 onClick={() => setHistoryFilter('changed')}
                                 className={`px-3 py-1 rounded-full text-xs font-medium transition-colors border ${historyFilter === 'changed' ? 'bg-yellow-900/50 text-yellow-400 border-yellow-700' : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700'}`}
                             >
-                                Changed
+                                {t('monitor_details.changed')}
                             </button>
                              <button 
                                 onClick={() => setHistoryFilter('unchanged')}
                                 className={`px-3 py-1 rounded-full text-xs font-medium transition-colors border ${historyFilter === 'unchanged' ? 'bg-green-900/50 text-green-400 border-green-700' : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700'}`}
                             >
-                                Unchanged
+                                {t('monitor_details.unchanged')}
                             </button>
                              <button 
                                 onClick={() => setHistoryFilter('error')}
                                 className={`px-3 py-1 rounded-full text-xs font-medium transition-colors border ${historyFilter === 'error' ? 'bg-red-900/50 text-red-400 border-red-700' : 'bg-gray-800 text-gray-400 border-gray-700 hover:bg-gray-700'}`}
                             >
-                                Error
+                                {t('monitor_details.error')}
                             </button>
                         </div>
                     </div>
