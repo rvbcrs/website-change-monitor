@@ -6,7 +6,7 @@ import * as Diff from 'diff';
 import { useToast } from './contexts/ToastContext';
 import { useDialog } from './contexts/DialogContext';
 import { useAuth } from './contexts/AuthContext';
-import { type HistoryRecord as SharedHistoryRecord, type Monitor as SharedMonitor } from '@deltawatch/shared';
+import { type HistoryRecord as SharedHistoryRecord, type Monitor as SharedMonitor, cleanValue } from '@deltawatch/shared';
 
 interface Keyword {
     text: string;
@@ -384,7 +384,7 @@ function MonitorDetails() {
                                     </div>
                                 ) : (
                                     <div className="text-2xl font-mono text-white break-all">
-                                        {monitor.last_value?.replace(/\s+/g, '') || "No Data"}
+                                        {cleanValue(monitor.last_value || "No Data")}
                                     </div>
                                 )}
                             </div>
@@ -463,7 +463,7 @@ function MonitorDetails() {
                                     contentStyle={{ backgroundColor: '#161b22', borderColor: '#30363d', color: '#c9d1d9' }}
                                     itemStyle={{ color: '#58a6ff' }}
                                     labelStyle={{ color: '#8b949e' }}
-                                    formatter={(value: number) => [value.toLocaleString(), 'Value']}
+                                    formatter={(value?: number) => [(value ?? 0).toLocaleString(), 'Value']}
                                 />
                                 <Line 
                                     type="monotone" 
@@ -633,7 +633,7 @@ function MonitorDetails() {
                                                                 )}
                                                             </div>
                                                             <div className="p-3 bg-gray-900/50 rounded border border-gray-800 font-mono text-xs overflow-x-auto whitespace-pre-wrap max-h-32 overflow-y-auto">
-                                                                {record.value?.replace(/\s+/g, '') || <span className="text-gray-500 italic">No text content</span>}
+                                                                {cleanValue(record.value || '') || <span className="text-gray-500 italic">No text content</span>}
                                                             </div>
                                                             
                                                             {isChanged && i < filteredArr.length - 1 && (() => {

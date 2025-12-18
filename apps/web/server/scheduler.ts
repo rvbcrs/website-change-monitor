@@ -803,10 +803,49 @@ async function previewScenario(url: string, scenarioConfig: string | ScenarioSte
     return screenshotFilename;
 }
 
+async function cleanupScreenshots() {
+    console.log('Running daily screenshot cleanup...');
+    const screenshotsDir = path.join(__dirname, 'public', 'screenshots');
+    const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+    const now = Date.now();
+
+    try {
+        if (!fs.existsSync(screenshotsDir)) return;
+
+        const files = fs.readdirSync(screenshotsDir);
+        let deletedCount = 0;
+
+        for (const file of files) {
+            if (file === '.keep') continue;
+            
+            const filePath = path.join(screenshotsDir, file);
+            try {
+                const stats = fs.statSync(filePath);
+                if (now - stats.mtimeMs > MAX_AGE_MS) {
+                    fs.unlinkSync(filePath);
+                    deletedCount++;
+                }
+            } catch (err: any) {
+                console.error(`Error processing file ${file} for cleanup:`, err.message);
+            }
+        }
+        console.log(`Cleanup complete. Deleted ${deletedCount} old screenshots.`);
+    } catch (error: any) {
+        console.error('Error during screenshot cleanup:', error.message);
+    }
+}
+
 function startScheduler(): void {
+    // Run every minute
     cron.schedule('* * * * *', () => {
         checkMonitors();
     });
+    
+    // Run cleanup every day at midnight
+    cron.schedule('0 0 * * *', () => {
+        cleanupScreenshots();
+    });
+
     console.log('Scheduler started.');
 }
 

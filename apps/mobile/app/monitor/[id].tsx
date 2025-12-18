@@ -255,7 +255,7 @@ export default function MonitorDetailScreen() {
             </TouchableOpacity>
           ) : (
             <Text style={styles.currentValue} numberOfLines={10}>
-              {monitor.last_value?.replace(/\s+/g, '') || 'No value captured yet'}
+              {cleanValue(monitor.last_value || '') || 'No value captured yet'}
             </Text>
           )}
         </View>

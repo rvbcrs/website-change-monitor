@@ -1,11 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { cleanValue } from '@deltawatch/shared';
 import { useAuth } from './contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { X, Clock, AlertTriangle, CheckCircle, Wifi, Monitor } from 'lucide-react';
+import { LineChart, Line, YAxis, ResponsiveContainer, LabelList } from 'recharts';
 
 interface HistoryItem {
+    id: number;
     http_status?: number;
     status?: string;
+    value?: string;
+    created_at: string;
 }
 
 interface KioskMonitor {
@@ -20,6 +25,67 @@ interface KioskMonitor {
     selector_text?: string;
     history?: HistoryItem[];
 }
+
+const CustomLabel = (props: any) => {
+    const { x, y, value, index, dataLength } = props;
+    if (index === 0 || index === dataLength - 1) {
+        return (
+            <text x={x} y={y} dy={-10} fill="#ffffff" fontSize={10} textAnchor="middle" fontWeight="bold">
+                {value}
+            </text>
+        );
+    }
+    return null;
+};
+
+const KioskChart = ({ history }: { history?: HistoryItem[], isUp: boolean }) => {
+    const graphData = useMemo(() => {
+        if (!history) return [];
+        return history.map(h => {
+            if (h.status === 'error') return null;
+            let valStr = h.value || "";
+            if (valStr.length > 50) return null;
+            
+            // Minimal heuristic to detect numeric content
+            const numericChars = (valStr.match(/[0-9.,€$£¥%]/g) || []).length;
+            if (numericChars < valStr.replace(/\s/g, '').length * 0.5) return null;
+            
+            if (valStr.includes(',') && (!valStr.includes('.') || valStr.indexOf(',') > valStr.lastIndexOf('.'))) {
+                valStr = valStr.replace(/\./g, '').replace(',', '.');
+            } else {
+                valStr = valStr.replace(/,/g, '');
+            }
+            const val = parseFloat(valStr.replace(/[^0-9.-]+/g,""));
+            return {
+                timestamp: new Date(h.created_at).getTime(),
+                value: isNaN(val) ? null : val
+            };
+        }).filter((item): item is {timestamp: number, value: number} => item !== null && item.value !== null).reverse();
+    }, [history]);
+
+    const showChart = graphData.length >= 2;
+
+    if (!showChart) return null;
+
+    return (
+        <div className="absolute inset-0 opacity-30 pointer-events-none">
+            <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={graphData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                    <YAxis domain={['auto', 'auto']} hide />
+                    <Line 
+                        type="monotone" 
+                        dataKey="value" 
+                        stroke="#a855f7" 
+                        strokeWidth={4}
+                        dot={false}
+                    >
+                        <LabelList content={<CustomLabel dataLength={graphData.length} />} />
+                    </Line>
+                </LineChart>
+            </ResponsiveContainer>
+        </div>
+    );
+};
 
 export default function KioskMode() {
     const [monitors, setMonitors] = useState<KioskMonitor[]>([]);
@@ -148,15 +214,16 @@ export default function KioskMode() {
                     
                     {currentMonitor.type === 'visual' ? (
                          currentMonitor.last_screenshot ? (
-                            <div className="relative w-full h-full max-h-[80vh] flex items-center justify-center rounded-xl overflow-hidden shadow-2xl border border-gray-800 bg-black">
+                            <div className="relative w-full h-full max-h-[80vh] flex items-center justify-center rounded-xl overflow-hidden shadow-2xl border border-gray-800 bg-black group">
                                 <img 
                                     src={`${API_BASE}/static/screenshots/${currentMonitor.last_screenshot.split('/').pop()}`} 
                                     alt={currentMonitor.name} 
-                                    className="object-contain w-full h-full"
+                                    className="object-contain w-full h-full z-10 relative"
                                 />
-                                <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-4 py-2 rounded-lg border border-white/10 text-white font-mono text-sm">
+                                <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-4 py-2 rounded-lg border border-white/10 text-white font-mono text-sm z-20">
                                     Last Check: {currentMonitor.last_check ? new Date(currentMonitor.last_check).toLocaleTimeString() : 'Never'}
                                 </div>
+                                <div className={`absolute -right-20 -bottom-20 w-[600px] h-[600px] rounded-full blur-3xl transition-colors opacity-30 ${isUp ? "bg-green-500" : "bg-red-500"}`}></div>
                             </div>
                         ) : (
                             <div className="flex flex-col items-center justify-center text-gray-500 gap-4">
@@ -165,35 +232,37 @@ export default function KioskMode() {
                             </div>
                         )
                     ) : (
-                        <div className="w-full max-w-4xl bg-[#161b22] rounded-2xl border border-gray-700 p-12 shadow-2xl flex flex-col items-center text-center gap-8">
-                            <div className={`p-6 rounded-full ${isUp ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                        <div className="w-full max-w-4xl bg-[#161b22] rounded-2xl border border-gray-700 p-12 shadow-2xl flex flex-col items-center text-center gap-8 relative overflow-hidden">
+                            <div className={`p-6 rounded-full ${isUp ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'} z-10 relative`}>
                                 <Wifi size={64} />
                             </div>
-                            <div>
+                            <div className="z-10 relative">
                                 <h1 className="text-4xl font-bold text-white mb-2">{currentMonitor.name}</h1>
                                 <p className="text-gray-400 text-xl font-mono max-w-2xl truncate mx-auto" title={currentMonitor.url}>{currentMonitor.url}</p>
                             </div>
                             
-                            <div className="grid grid-cols-2 gap-8 w-full mt-8">
-                                <div className="bg-[#0d1117] p-6 rounded-xl border border-gray-800">
+                            <div className="grid grid-cols-2 gap-8 w-full mt-8 z-10 relative">
+                                <div className="bg-[#0d1117] p-6 rounded-xl border border-gray-800 flex flex-col justify-center">
                                     <div className="text-gray-500 text-sm uppercase tracking-wider mb-2">Status</div>
                                     <div className={`text-3xl font-bold ${isUp ? 'text-green-400' : 'text-red-400'}`}>
                                         {isUp ? 'ONLINE' : 'DOWN'}
                                     </div>
                                 </div>
-                                <div className="bg-[#0d1117] p-6 rounded-xl border border-gray-800">
-                                    <div className="text-gray-500 text-sm uppercase tracking-wider mb-2">Last Value</div>
-                                    <div className="text-xl text-white font-mono break-all line-clamp-2">
-                                        {currentMonitor.last_value || "—"}
-                                    </div>
+                                <div className="bg-[#0d1117] p-6 rounded-xl border border-gray-800 flex flex-col justify-center relative overlow-hidden">
+                                     <div className="text-gray-500 text-sm uppercase tracking-wider mb-2 z-10 relative">Last Value</div>
+                                     <div className="text-xl text-white font-mono break-all line-clamp-2 z-10 relative">
+                                         {cleanValue(currentMonitor.last_value || "—")}
+                                     </div>
+                                     <KioskChart history={currentMonitor.history} isUp={isUp} />
                                 </div>
                             </div>
                             
                             {currentMonitor.selector_text && (
-                                <div className="text-gray-500 text-sm mt-4">
-                                    Tracking: <span className="font-mono text-gray-300">{currentMonitor.selector_text}</span>
+                                <div className="text-gray-500 text-sm mt-4 z-10 relative">
+                                    Tracking: <span className="font-mono text-gray-300">{cleanValue(currentMonitor.selector_text)}</span>
                                 </div>
                             )}
+                            <div className={`absolute -right-20 -bottom-20 w-[600px] h-[600px] rounded-full blur-3xl transition-colors opacity-20 pointer-events-none ${isUp ? "bg-green-500" : "bg-red-500"}`}></div>
                         </div>
                     )}
                 </div>

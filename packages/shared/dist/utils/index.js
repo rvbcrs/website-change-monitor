@@ -1,9 +1,16 @@
-/**
- * Remove all whitespace from a value string.
- * Useful for cleaning prices like "34,\n99" -> "34,99"
- */
 export function cleanValue(val) {
-    return val.replace(/\s+/g, '').trim();
+    if (!val)
+        return '';
+    // 1. Trim whitespace from ends
+    let cleaned = val.trim();
+    // 2. Fix split decimals: "102, 00" -> "102,00" or "50 . 99" -> "50.99"
+    // Looks for digits, optional space, separator, optional space, digits
+    cleaned = cleaned.replace(/(\d+)[\s\u00A0]*([.,])[\s\u00A0]*(\d+)/g, '$1$2$3');
+    // Specific fix for comma-space-digit pattern even if strict check fails
+    cleaned = cleaned.replace(/,[\s\u00A0]+(\d)/g, ',$1');
+    // 3. Fix comma/dot separation if just one trailing part: "€ 102 ,-" -> "€ 102,-"
+    cleaned = cleaned.replace(/(\d+)\s+([.,-])/g, '$1$2');
+    return cleaned;
 }
 /**
  * Convert a date to a human-readable "time ago" string.

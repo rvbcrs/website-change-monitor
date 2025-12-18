@@ -1,7 +1,3 @@
-/**
- * Remove all whitespace from a value string.
- * Useful for cleaning prices like "34,\n99" -> "34,99"
- */
 export declare function cleanValue(val: string): string;
 /**
  * Convert a date to a human-readable "time ago" string.
