@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import StatsOverview, { type StatsOverviewRef } from './components/StatsOverview'
 import { useState, useEffect, useRef, type MouseEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -29,6 +30,7 @@ const TimeAgo = ({ date }: { date: string | null | undefined }) => {
 };
 
 const Dashboard = () => {
+  const { t } = useTranslation();
   const [monitors, setMonitors] = useState<Monitor[]>([])
   const [loading, setLoading] = useState(true)
   const [checkingMonitors, setCheckingMonitors] = useState<Set<number>>(new Set())
@@ -80,11 +82,11 @@ const Dashboard = () => {
       try {
           await authFetch(`${API_BASE}/monitors/${id}`, { method: 'DELETE' })
           fetchMonitors()
-          showToast('Monitor deleted successfully', 'success')
+          showToast(t('dashboard.toasts.monitor_deleted'), 'success')
           // Refresh stats immediately
           statsRef.current?.refresh();
       } catch {
-          showToast('Failed to delete monitor', 'error')
+          showToast(t('dashboard.toasts.delete_failed'), 'error')
       }
   }
 
@@ -104,16 +106,16 @@ const Dashboard = () => {
           const res = await authFetch(`${API_BASE}/monitors/${monitor.id}/check`, { method: 'POST' });
           if(res.ok) {
               await fetchMonitors();
-              showToast('Check completed successfully', 'success');
+              showToast(t('monitor_details.toasts.check_success'), 'success');
               // Refresh stats immediately
               statsRef.current?.refresh();
           }
           else {
               const text = await res.text();
-              showToast('Check failed: ' + text, 'error');
+              showToast(t('dashboard.toasts.check_failed', { error: text }), 'error');
           }
       } catch(err) { 
-          showToast(err instanceof Error ? err.message : 'Unknown error', 'error'); 
+          showToast(t('monitor_details.toasts.check_generic_error', { error: err instanceof Error ? err.message : 'Unknown error' }), 'error'); 
       } finally {
           setCheckingMonitors(prev => {
               const newSet = new Set(prev);
@@ -174,13 +176,13 @@ const Dashboard = () => {
           
           if (res.ok) {
               await fetchMonitors();
-              showToast('Monitor duplicated successfully', 'success');
+              showToast(t('dashboard.toasts.duplicate_success'), 'success');
               statsRef.current?.refresh();
           } else {
               throw new Error('Failed to duplicate');
           }
       } catch {
-          showToast('Failed to duplicate monitor', 'error');
+          showToast(t('dashboard.toasts.duplicate_failed'), 'error');
       }
   }
 
@@ -205,7 +207,7 @@ const Dashboard = () => {
       a.download = `${monitor.name || 'monitor'}-export.json`;
       a.click();
       URL.revokeObjectURL(url);
-      showToast('Monitor exported', 'success');
+      showToast(t('dashboard.toasts.export_success'), 'success');
   }
 
 
@@ -288,7 +290,7 @@ const Dashboard = () => {
                                               'bg-red-900/30 text-red-400 border-red-900';
                             return (
                                 <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider border ${colorClass}`}>
-                                    {uptime}% UP
+                                    {uptime}% {t('dashboard.uptime')}
                                 </span>
                             );
                         })()}
@@ -391,15 +393,15 @@ const Dashboard = () => {
     <div className="h-full flex flex-col">
        <div className="flex flex-col gap-3 mb-6">
             <div className="flex justify-between items-center">
-                <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight">Deltas</h1>
+                <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight">{t('dashboard.title')}</h1>
                 <Link 
                     to="/new" 
                     className="group relative inline-flex items-center gap-1.5 px-3 py-2 md:px-5 md:py-2.5 bg-[#238636] hover:bg-[#2ea043] text-white rounded-lg font-semibold text-xs md:text-sm transition-all shadow-lg hover:shadow-green-900/30 border border-transparent hover:border-green-400/30 overflow-hidden flex-shrink-0"
                 >
                      <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out"></div>
                     <Plus size={16} className="relative z-10" /> 
-                    <span className="relative z-10 hidden sm:inline">Nieuwe Delta</span>
-                    <span className="relative z-10 sm:hidden">Nieuw</span>
+                    <span className="relative z-10 hidden sm:inline">{t('dashboard.new_delta')}</span>
+                    <span className="relative z-10 sm:hidden">{t('dashboard.new_delta')}</span>
                 </Link>
             </div>
             
@@ -424,13 +426,13 @@ const Dashboard = () => {
                         onClick={() => setGroupBy('none')}
                         className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${groupBy === 'none' ? 'bg-[#161b22] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}
                     >
-                        Lijst
+                        {t('dashboard.list')}
                     </button>
                     <button
                         onClick={() => setGroupBy('type')}
                         className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${groupBy === 'type' ? 'bg-[#161b22] text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}
                     >
-                        Groep
+                        {t('dashboard.group')}
                     </button>
                 </div>
                 <div className="h-6 w-px bg-gray-700 mx-1"></div>
@@ -438,7 +440,7 @@ const Dashboard = () => {
                     <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                     <input
                         type="text"
-                        placeholder="Zoek monitors..."
+                        placeholder={t('dashboard.search_placeholder')}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="w-full pl-9 pr-8 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 transition-colors"
@@ -469,7 +471,7 @@ const Dashboard = () => {
                   : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
               }`}
             >
-              Alle ({monitors.length})
+              {t('dashboard.all')} ({monitors.length})
             </button>
             {allTags.map(tag => (
               <button
@@ -488,14 +490,14 @@ const Dashboard = () => {
         )}
 
         {loading ? (
-             <div className="text-center py-10 text-gray-500">Deltas laden...</div>
+             <div className="text-center py-10 text-gray-500">{t('dashboard.loading')}</div>
         ) : (
             <div className={`transition-all duration-300 ease-in-out space-y-2`}>
                 {filteredMonitors.length === 0 && (
                     <div className="text-center py-20 bg-[#161b22] rounded-lg border border-dashed border-gray-700">
-                        <h3 className="text-lg font-medium text-gray-300">{selectedTag ? 'Geen deltas met deze tag' : 'Nog geen deltas'}</h3>
-                        <p className="text-gray-500 mb-4">{selectedTag ? 'Probeer een andere tag of maak een nieuwe delta.' : 'Begin met het aanmaken van je eerste delta.'}</p>
-                        {!selectedTag && <Link to="/new" className="text-blue-400 hover:text-blue-300 hover:underline">Nieuwe Delta</Link>}
+                        <h3 className="text-lg font-medium text-gray-300">{selectedTag ? t('dashboard.no_deltas_tag') : t('dashboard.no_deltas')}</h3>
+                        <p className="text-gray-500 mb-4">{selectedTag ? t('dashboard.try_another_tag') : t('dashboard.start_creating')}</p>
+                        {!selectedTag && <Link to="/new" className="text-blue-400 hover:text-blue-300 hover:underline">{t('dashboard.new_delta')}</Link>}
                     </div>
                 )}
 
@@ -510,7 +512,7 @@ const Dashboard = () => {
                                 {visual.length > 0 && (
                                     <div className="mb-6">
                                         <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2">
-                                            <span className="w-2 h-2 rounded-full bg-blue-500"></span> Visual Monitors
+                                            <span className="w-2 h-2 rounded-full bg-blue-500"></span> {t('dashboard.visual_monitors')}
                                         </h3>
                                         {visual.map(renderMonitorCard)}
                                     </div>
@@ -518,7 +520,7 @@ const Dashboard = () => {
                                 {text.length > 0 && (
                                     <div className="mb-6">
                                         <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2">
-                                            <span className="w-2 h-2 rounded-full bg-green-500"></span> Text Monitors
+                                            <span className="w-2 h-2 rounded-full bg-green-500"></span> {t('dashboard.text_monitors')}
                                         </h3>
                                         {text.map(renderMonitorCard)}
                                     </div>
@@ -526,7 +528,7 @@ const Dashboard = () => {
                                 {fullPage.length > 0 && (
                                     <div className="mb-6">
                                         <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2">
-                                            <span className="w-2 h-2 rounded-full bg-purple-500"></span> Full Page Monitors
+                                            <span className="w-2 h-2 rounded-full bg-purple-500"></span> {t('dashboard.full_page_monitors')}
                                         </h3>
                                         {fullPage.map(renderMonitorCard)}
                                     </div>

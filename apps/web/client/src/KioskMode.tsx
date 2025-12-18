@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { cleanValue } from '@deltawatch/shared';
+import LanguageSwitcher from './components/LanguageSwitcher';
 import { useAuth } from './contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { X, Clock, AlertTriangle, CheckCircle, Wifi, Monitor } from 'lucide-react';
 import { LineChart, Line, YAxis, ResponsiveContainer, LabelList } from 'recharts';
+import { useTranslation } from 'react-i18next';
 
 interface HistoryItem {
     id: number;
@@ -88,6 +90,7 @@ const KioskChart = ({ history }: { history?: HistoryItem[], isUp: boolean }) => 
 };
 
 export default function KioskMode() {
+    const { t } = useTranslation();
     const [monitors, setMonitors] = useState<KioskMonitor[]>([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [loading, setLoading] = useState(true);
@@ -193,6 +196,7 @@ export default function KioskMode() {
                 </div>
 
                 <div className="flex items-center gap-6">
+                    <LanguageSwitcher />
                     <div className="flex items-center gap-2 text-gray-400 font-mono text-lg">
                         <Clock size={16} />
                         {time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -221,14 +225,14 @@ export default function KioskMode() {
                                     className="object-contain w-full h-full z-10 relative"
                                 />
                                 <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-4 py-2 rounded-lg border border-white/10 text-white font-mono text-sm z-20">
-                                    Last Check: {currentMonitor.last_check ? new Date(currentMonitor.last_check).toLocaleTimeString() : 'Never'}
+                                    {currentMonitor.last_check ? t('kiosk.last_check', { time: new Date(currentMonitor.last_check).toLocaleTimeString() }) : t('kiosk.never')}
                                 </div>
                                 <div className={`absolute -right-20 -bottom-20 w-[600px] h-[600px] rounded-full blur-3xl transition-colors opacity-30 ${isUp ? "bg-green-500" : "bg-red-500"}`}></div>
                             </div>
                         ) : (
                             <div className="flex flex-col items-center justify-center text-gray-500 gap-4">
                                 <Monitor size={64} className="opacity-20" />
-                                <p className="text-xl">Waiting for visual data...</p>
+                                <p className="text-xl">{t('kiosk.waiting_visual')}</p>
                             </div>
                         )
                     ) : (
@@ -243,13 +247,13 @@ export default function KioskMode() {
                             
                             <div className="grid grid-cols-2 gap-8 w-full mt-8 z-10 relative">
                                 <div className="bg-[#0d1117] p-6 rounded-xl border border-gray-800 flex flex-col justify-center">
-                                    <div className="text-gray-500 text-sm uppercase tracking-wider mb-2">Status</div>
+                                    <div className="text-gray-500 text-sm uppercase tracking-wider mb-2">{t('kiosk.status')}</div>
                                     <div className={`text-3xl font-bold ${isUp ? 'text-green-400' : 'text-red-400'}`}>
-                                        {isUp ? 'ONLINE' : 'DOWN'}
+                                        {isUp ? t('status.online') : t('status.down')}
                                     </div>
                                 </div>
                                 <div className="bg-[#0d1117] p-6 rounded-xl border border-gray-800 flex flex-col justify-center relative overlow-hidden">
-                                     <div className="text-gray-500 text-sm uppercase tracking-wider mb-2 z-10 relative">Last Value</div>
+                                     <div className="text-gray-500 text-sm uppercase tracking-wider mb-2 z-10 relative">{t('kiosk.last_value')}</div>
                                      <div className="text-xl text-white font-mono break-all line-clamp-2 z-10 relative">
                                          {cleanValue(currentMonitor.last_value || "—")}
                                      </div>
@@ -259,7 +263,7 @@ export default function KioskMode() {
                             
                             {currentMonitor.selector_text && (
                                 <div className="text-gray-500 text-sm mt-4 z-10 relative">
-                                    Tracking: <span className="font-mono text-gray-300">{cleanValue(currentMonitor.selector_text)}</span>
+                                    {t('kiosk.tracking')}: <span className="font-mono text-gray-300">{cleanValue(currentMonitor.selector_text)}</span>
                                 </div>
                             )}
                             <div className={`absolute -right-20 -bottom-20 w-[600px] h-[600px] rounded-full blur-3xl transition-colors opacity-20 pointer-events-none ${isUp ? "bg-green-500" : "bg-red-500"}`}></div>

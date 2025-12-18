@@ -29,7 +29,10 @@ interface SettingsData {
     webhook_url: string;
 }
 
+import { useTranslation } from 'react-i18next';
+
 function Settings() {
+    const { t, i18n } = useTranslation();
     const API_BASE = '';
     const navigate = useNavigate();
     const { showToast } = useToast();
@@ -223,18 +226,47 @@ function Settings() {
                         <ArrowLeft />
                     </button>
                     <h1 className="text-xl font-bold text-white shadow-sm flex items-center gap-2">
-                        <Bell size={20} /> Notification Settings
+                        <Bell size={20} /> {t('settings.title')}
                     </h1>
                 </div>
             </header>
 
             <div className="flex-1 overflow-y-auto p-8">
                 <div className="max-w-3xl mx-auto space-y-8">
+
+                    {/* General Settings */}
+                    <div className="bg-[#161b22] p-6 rounded-lg border border-gray-800 shadow-lg">
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                                <Globe size={20} className="text-blue-400" /> {t('settings.general')}
+                            </h2>
+                        </div>
+                        <div className="grid grid-cols-1 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">{t('settings.language')}</label>
+                                <div className="flex gap-4">
+                                    <button
+                                        onClick={() => i18n.changeLanguage('en')}
+                                        className={`flex-1 px-4 py-2 rounded-lg border transition-colors flex items-center justify-center gap-2 ${i18n.language === 'en' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-[#0d1117] border-gray-700 text-gray-400 hover:border-gray-600'}`}
+                                    >
+                                        <span className="text-xl">🇺🇸</span> English
+                                    </button>
+                                    <button
+                                        onClick={() => i18n.changeLanguage('nl')}
+                                        className={`flex-1 px-4 py-2 rounded-lg border transition-colors flex items-center justify-center gap-2 ${i18n.language === 'nl' ? 'bg-orange-600/20 border-orange-500 text-orange-400' : 'bg-[#0d1117] border-gray-700 text-gray-400 hover:border-gray-600'}`}
+                                    >
+                                        <span className="text-xl">🇳🇱</span> Nederlands
+                                    </button>
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2">{t('settings.language_desc')}</p>
+                            </div>
+                        </div>
+                    </div>
                     
                     {/* Email Settings */}
                     <div className="bg-[#161b22] p-6 rounded-lg border border-gray-800 shadow-lg">
                         <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-lg font-semibold text-white">Email Notifications</h2>
+                            <h2 className="text-lg font-semibold text-white">{t('settings.notifications')} (Email)</h2>
                             <label className="relative inline-flex items-center cursor-pointer">
                               <input type="checkbox" name="email_enabled" checked={settings.email_enabled} onChange={handleChange} className="sr-only peer" />
                               <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
@@ -307,7 +339,7 @@ function Settings() {
                     {/* Push Settings */}
                     <div className="bg-[#161b22] p-6 rounded-lg border border-gray-800 shadow-lg">
                         <div className="flex items-center justify-between mb-4">
-                            <h2 className="text-lg font-semibold text-white">Smartphone Notifications</h2>
+                            <h2 className="text-lg font-semibold text-white">{t('settings.notifications')} (Push)</h2>
                             <label className="relative inline-flex items-center cursor-pointer">
                               <input type="checkbox" name="push_enabled" checked={settings.push_enabled} onChange={handleChange} className="sr-only peer" />
                               <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
@@ -505,7 +537,7 @@ function Settings() {
                             onClick={handleSave}
                             className="flex-1 bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 font-bold transition-colors shadow-lg shadow-green-900/20 flex items-center justify-center gap-2"
                         >
-                            <Save size={20} /> Save Settings
+                            <Save size={20} /> {t('settings.save')}
                         </button>
                     </div>
 

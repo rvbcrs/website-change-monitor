@@ -1,10 +1,11 @@
 import { useState, useEffect, type ReactNode } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, Outlet } from 'react-router-dom'
 import { LayoutDashboard, Settings, Radar, Menu, X, LogOut, User } from 'lucide-react'
 import { useAuth } from './contexts/AuthContext'
+import { useTranslation } from 'react-i18next'
 
 interface LayoutProps {
-  children: ReactNode;
+  children?: ReactNode;
 }
 
 interface NavItem {
@@ -18,6 +19,7 @@ function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { user, logout } = useAuth();
+  const { t, i18n } = useTranslation();
 
   // Close menu when route changes
   useEffect(() => {
@@ -25,9 +27,9 @@ function Layout({ children }: LayoutProps) {
   }, [location]);
 
   const navItems: NavItem[] = [
-    { icon: <LayoutDashboard size={20} />, label: 'Monitoring', path: '/' },
-    { icon: <Settings size={20} />, label: 'Settings', path: '/settings' },
-    { icon: <User size={20} />, label: 'Users', path: '/users', adminOnly: true },
+    { icon: <LayoutDashboard size={20} />, label: t('sidebar.dashboard'), path: '/' },
+    { icon: <Settings size={20} />, label: t('sidebar.settings'), path: '/settings' },
+    { icon: <User size={20} />, label: t('sidebar.users'), path: '/users', adminOnly: true },
   ];
 
   return (
@@ -115,7 +117,7 @@ function Layout({ children }: LayoutProps) {
                     onClick={logout}
                     className="w-full flex items-center justify-center gap-2 bg-red-900/20 hover:bg-red-900/40 text-red-400 px-4 py-2 rounded-lg transition-colors border border-red-900/50"
                  >
-                    <LogOut size={16} /> Logout
+                    <LogOut size={16} /> {t('sidebar.logout')}
                  </button>
             ) : (
                 <Link 
@@ -133,8 +135,34 @@ function Layout({ children }: LayoutProps) {
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 p-4 md:p-8">
-        {children}
+      <main className="flex-1 p-4 md:p-8 flex flex-col min-h-0">
+        <div className="flex-1">
+            {children || <Outlet />}
+        </div>
+        
+        {/* Global Footer */}
+        <footer className="mt-8 pt-6 border-t border-gray-800 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-gray-500">
+            <div className="flex items-center gap-2">
+                <span>&copy; {new Date().getFullYear()} Interpreter Software B.V.</span>
+            </div>
+            
+            <div className="flex items-center gap-4">
+                 <div className="flex bg-[#161b22] border border-gray-800 rounded-md p-1">
+                    <button 
+                        onClick={() => i18n.changeLanguage('en')}
+                        className={`px-2 py-1 rounded transition-colors ${i18n.language === 'en' ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400 hover:text-gray-200'}`}
+                    >
+                        EN
+                    </button>
+                    <button 
+                         onClick={() => i18n.changeLanguage('nl')}
+                        className={`px-2 py-1 rounded transition-colors ${i18n.language === 'nl' ? 'bg-orange-600/20 text-orange-400' : 'text-gray-400 hover:text-gray-200'}`}
+                    >
+                        NL
+                    </button>
+                 </div>
+            </div>
+        </footer>
       </main>
     </div>
   )

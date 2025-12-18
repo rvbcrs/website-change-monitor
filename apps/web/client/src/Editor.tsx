@@ -1,5 +1,6 @@
 // Editor doesn't use Layout! Removing the import which is causing issues.
 import { useState, useEffect, type KeyboardEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useToast } from './contexts/ToastContext';
 import { ArrowLeft, Image, FileText, MousePointerClick, Bell, Brain } from 'lucide-react';
@@ -34,6 +35,7 @@ function Editor() {
   const [monitorType, setMonitorType] = useState<'text' | 'visual'>('text');
   const { showToast } = useToast();
   const { authFetch } = useAuth();
+  const { t } = useTranslation();
   
   const [isSelecting, setIsSelecting] = useState(true);
 
@@ -74,13 +76,13 @@ function Editor() {
                         
                         setProxyUrl(`${API_BASE}/proxy?url=${encodeURIComponent(monitor.url)}`);
                     } else {
-                        showToast('Monitor not found', 'error');
+                        showToast(t('editor.toasts.monitor_not_found'), 'error');
                         navigate('/');
                     }
                 }
             } catch (e) {
                 console.error(e);
-                showToast('Error loading monitor', 'error');
+                showToast(t('editor.toasts.load_error'), 'error');
             }
         };
         fetchMonitor();
@@ -97,7 +99,7 @@ function Editor() {
         if (paramName) setName(paramName);
         if (paramType) setMonitorType(paramType as 'text' | 'visual');
         if (paramSelector) {
-            setSelectedElement({ selector: paramSelector, text: 'Auto-detected' });
+            setSelectedElement({ selector: paramSelector, text: t('editor.toasts.auto_detected') });
         }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -117,18 +119,18 @@ function Editor() {
       } else if (type === 'navigate') {
           console.log("Navigating to:", payload);
           setProxyUrl(`${API_BASE}/proxy?url=${encodeURIComponent(payload as string)}`);
-          showToast('Navigating...', 'info');
+          showToast(t('editor.toasts.navigating'), 'info');
       } else if (type === 'TEST_SELECTOR_RESULT') {
           const result = payload as { found?: boolean; count?: number; text?: string; error?: string };
           if (result.found) {
-              showToast(`✅ Found ${result.count} element${(result.count ?? 0) > 1 ? 's' : ''}`, 'success');
+              showToast(t('editor.toasts.found_elements', { count: result.count }), 'success');
               if (selectedElement) {
                   setSelectedElement(prev => prev ? { ...prev, text: result.text || '' } : null);
               }
           } else if (result.error) {
-              showToast(`❌ Invalid selector: ${result.error}`, 'error');
+              showToast(t('editor.toasts.invalid_selector', { error: result.error }), 'error');
           } else {
-              showToast(`❌ No elements found`, 'error');
+              showToast(t('editor.toasts.no_elements'), 'error');
           }
       }
     };
@@ -158,7 +160,7 @@ function Editor() {
   const handleSave = async () => {
     if (!url) return;
     if (monitorType === 'text' && !selectedElement) {
-        alert('Please select an element to monitor.');
+        alert(t('editor.toasts.select_element'));
         return;
     }
     
@@ -183,14 +185,14 @@ function Editor() {
         });
         const data = await response.json();
         if (data.message === 'success' || data.message === 'Monitor added' || data.message === 'Monitor updated') {
-            showToast('Monitor saved successfully', 'success');
+            showToast(t('editor.toasts.monitor_saved'), 'success');
             navigate('/'); 
         } else {
-            showToast('Error saving monitor: ' + (data.error || 'Unknown error'), 'error');
+            showToast(t('editor.toasts.save_error', { error: data.error || 'Unknown error' }), 'error');
         }
     } catch (e) {
         console.error(e);
-        showToast('Error saving monitor: ' + (e instanceof Error ? e.message : 'Unknown error'), 'error');
+        showToast(t('editor.toasts.save_error', { error: e instanceof Error ? e.message : 'Unknown error' }), 'error');
     }
   }
 
@@ -228,7 +230,7 @@ function Editor() {
     setIsLoading(true);
     setProxyUrl(`${API_BASE}/proxy?url=${encodeURIComponent(url)}`);
     
-    showToast("✨ AI is analyzing page...", "info");
+    showToast(t('editor.toasts.ai_analyzing'), "info");
     
     try {
         const res = await authFetch(`${API_BASE}/api/ai/analyze-page`, {
@@ -241,15 +243,15 @@ function Editor() {
             const { name: aiName, selector, type } = data.data;
             setName(aiName);
             if (selector) {
-                setSelectedElement({ selector, text: 'Auto-detected by AI' });
+                setSelectedElement({ selector, text: t('editor.toasts.auto_detected') });
                 setMonitorType(type || 'text');
             }
-            showToast("✨ Configuration applied!", "success");
+            showToast(t('editor.toasts.config_applied'), "success");
         } else {
-            showToast("AI couldn't find a good config.", "error");
+            showToast(t('editor.toasts.ai_no_config'), "error");
         }
     } catch (e) {
-        showToast("AI Analysis failed: " + (e instanceof Error ? e.message : 'Unknown error'), "error");
+        showToast(t('editor.toasts.ai_error', { error: e instanceof Error ? e.message : 'Unknown error' }), "error");
     } finally {
         setIsLoading(false);
     }
@@ -298,7 +300,7 @@ function Editor() {
                   <ArrowLeft />
                </button>
                <h1 className="text-xl font-bold text-white shadow-sm whitespace-nowrap">
-                  {id ? 'Delta Bewerken' : 'Nieuwe Delta'}
+                  {id ? t('editor.title_edit') : t('editor.title_new')}
                </h1>
              </div>
              
@@ -308,25 +310,25 @@ function Editor() {
                        onClick={() => { setMonitorType('visual'); setSelectedElement(null); }}
                        className={`px-3 py-1 text-sm rounded-md transition-all flex-1 md:flex-none text-center ${getUiMode() === 'visual' ? 'bg-[#1f6feb] text-white' : 'text-gray-400 hover:text-white'}`}
                    >
-                       <Image size={16} className="inline-block mr-1" /> Visual
+                       <Image size={16} className="inline-block mr-1" /> {t('editor.visual')}
                    </button>
                    <button 
                        onClick={() => { setMonitorType('text'); setSelectedElement(null); }}
                        className={`px-3 py-1 text-sm rounded-md transition-all flex-1 md:flex-none text-center ${getUiMode() === 'text_element' ? 'bg-[#1f6feb] text-white' : 'text-gray-400 hover:text-white'}`}
                    >
-                       <MousePointerClick size={16} className="inline-block mr-1" /> Element
+                       <MousePointerClick size={16} className="inline-block mr-1" /> {t('editor.element')}
                    </button>
                    <button 
                        onClick={() => { setMonitorType('text'); setSelectedElement({ selector: 'body', text: 'Full Page Text' }); }}
                        className={`px-3 py-1 text-sm rounded-md transition-all flex-1 md:flex-none text-center ${getUiMode() === 'text_page' ? 'bg-[#1f6feb] text-white' : 'text-gray-400 hover:text-white'}`}
                    >
-                       <FileText size={16} className="inline-block mr-1" /> Page
+                       <FileText size={16} className="inline-block mr-1" /> {t('editor.page')}
                    </button>
                </div>
 
                <input 
                  type="text" 
-                 placeholder="Name (optional)" 
+                 placeholder={t('editor.name_placeholder')} 
                  className="p-2 bg-[#0d1117] border border-gray-700 text-white rounded focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-600 w-full md:w-48"
                  value={name}
                  onChange={(e) => setName(e.target.value)}
@@ -335,7 +337,7 @@ function Editor() {
                <div className="flex w-full md:w-auto md:flex-1 gap-2 min-w-0">
                    <input 
                      type="text" 
-                     placeholder="Enter URL to monitor..." 
+                     placeholder={t('editor.url_placeholder')} 
                      className="flex-1 p-2 bg-[#0d1117] border border-gray-700 text-white rounded focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-600 min-w-0"
                      value={url}
                      onChange={(e) => setUrl(e.target.value)}
@@ -348,13 +350,13 @@ function Editor() {
                    >
                      {isLoading ? (
                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                     ) : 'Go'}
+                     ) : t('editor.go')}
                    </button>
                    
                    <button
                         onClick={handleAiAnalyze}
                         disabled={!url || isLoading}
-                        title="Magic Create: Auto-fill Name & Selector"
+                        title={t('editor.magical_create')}
                         className={`px-3 py-2 rounded font-medium transition flex items-center justify-center gap-2 ${!url || isLoading ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-500 text-white'}`}
                    >
                        ✨
@@ -369,16 +371,16 @@ function Editor() {
                     <div className="flex flex-col md:flex-row items-center justify-between gap-4 w-full">
                         <p className="text-gray-400 text-sm flex items-center gap-2">
                             <span className="bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded text-xs uppercase font-bold tracking-wider">Tip</span>
-                            {isSelecting ? "Click any element." : "Interact with page."}
+                            {isSelecting ? t('editor.tip_select') : t('editor.tip_interact')}
                         </p>
                         
                      <div className="flex bg-[#21262d] rounded-lg p-1 overflow-x-auto max-w-full">
                             <button 
                                 onClick={handleClearSelection}
                                 className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-900/30 transition-all mr-2 border-r border-gray-700 pr-3"
-                                title="Clear Selection"
+                                title={t('editor.clear')}
                             >
-                                <span className="font-bold">×</span> Clear
+                                <span className="font-bold">×</span> {t('editor.clear')}
                             </button>
 
                             <button 
@@ -386,19 +388,19 @@ function Editor() {
                                 className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${isSelecting ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}
                             >
                                 <MousePointerClick size={14} />
-                                Select
+                                {t('editor.select')}
                             </button>
                             <button 
                                 onClick={() => setIsSelecting(false)}
                                 className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${!isSelecting ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'}`}
                             >
                                 <MousePointerClick className="rotate-90" size={14} />
-                                Interact
+                                {t('editor.interact')}
                             </button>
                         </div>
                     </div>
                 ) : (
-                    <span className="text-blue-400">Visual mode active. Screenshots will be compared.</span>
+                    <span className="text-blue-400">{t('editor.visual_mode_desc')}</span>
                 )}
             </div>
              <div className="flex items-center justify-between w-full md:w-auto gap-4">
@@ -411,17 +413,17 @@ function Editor() {
                          className="bg-[#0d1117] border border-gray-700 text-white rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[160px]"
                          title="Notification Rule"
                      >
-                         <option value="all">Always Notify</option>
-                         <option value="ai_focus">🤖 AI Focus Match</option>
-                         <option value="value_lt">Value &lt;</option>
-                         <option value="value_gt">Value &gt;</option>
-                         <option value="contains">Contains</option>
-                         <option value="not_contains">Not Contains</option>
+                         <option value="all">{t('editor.always_notify')}</option>
+                         <option value="ai_focus">{t('editor.ai_focus')}</option>
+                         <option value="value_lt">{t('editor.val')} &lt;</option>
+                         <option value="value_gt">{t('editor.val')} &gt;</option>
+                         <option value="contains">{t('editor.contains')}</option>
+                         <option value="not_contains">{t('editor.not_contains')}</option>
                      </select>
                      {notifyConfig.method !== 'all' && notifyConfig.method !== 'ai_focus' && (
                          <input 
                              type="text" 
-                             placeholder="Val" 
+                             placeholder={t('editor.val')} 
                              value={notifyConfig.threshold}
                              onChange={(e) => setNotifyConfig({ ...notifyConfig, threshold: e.target.value })}
                              className="bg-[#0d1117] border border-gray-700 text-white rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-20"
@@ -433,7 +435,7 @@ function Editor() {
                      <Brain size={16} className="text-purple-400" />
                      <input 
                          type="text" 
-                         placeholder="AI Focus: e.g. Watch for price..." 
+                         placeholder={t('editor.ai_prompt_placeholder')} 
                          value={aiPrompt}
                          onChange={(e) => setAiPrompt(e.target.value)}
                          className="bg-[#0d1117] border border-gray-700 text-white rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 w-48 placeholder-gray-600"
@@ -442,7 +444,7 @@ function Editor() {
                  </div>
 
                  <div className="flex items-center gap-2 border-l border-gray-700 pl-4">
-                     <label className="text-gray-400 text-sm whitespace-nowrap">Check Every:</label>
+                     <label className="text-gray-400 text-sm whitespace-nowrap">{t('editor.check_every')}</label>
                      <select 
                          value={interval} 
                          onChange={(e) => setIntervalValue(e.target.value)}
@@ -462,7 +464,7 @@ function Editor() {
                       disabled={!url || !proxyUrl || isLoading || (monitorType === 'text' && !selectedElement)}
                       className={`px-6 py-1 rounded transition font-medium w-32 justify-center flex ${(!url || !proxyUrl || isLoading || (monitorType === 'text' && !selectedElement)) ? 'bg-gray-700 text-gray-400 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-500'}`}
                   >
-                      Save
+                      {t('editor.save')}
                   </button>
              </div>
         </div>
@@ -471,26 +473,26 @@ function Editor() {
       <div className="flex flex-1 overflow-hidden">
         {selectedElement && monitorType === 'text' && (
             <div className="w-80 bg-[#161b22] border-r border-gray-800 p-4 shadow-lg flex flex-col overflow-y-auto z-20">
-                <h2 className="text-lg font-semibold mb-2 text-white">Selected Element</h2>
+                <h2 className="text-lg font-semibold mb-2 text-white">{t('editor.selected_element')}</h2>
                 <div className="flex gap-2 mb-2">
                     <input 
                         type="text"
                         value={selectedElement.selector}
                         onChange={(e) => setSelectedElement({ ...selectedElement, selector: e.target.value })}
                         className="flex-1 bg-[#0d1117] p-2 rounded text-xs font-mono break-all border border-gray-700 text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        placeholder="CSS Selector"
+                        placeholder={t('editor.selector_placeholder')}
                     />
                     <button
                         onClick={handleTestSelector}
                         className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-500 transition whitespace-nowrap"
                         title="Test selector and highlight matching element"
                     >
-                        🔍 Test
+                        🔍 {t('editor.test')}
                     </button>
                 </div>
                 <div className="mb-4">
-                    <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider">Current Text</h3>
-                    <p className="p-2 bg-[#0d1117] rounded border border-gray-700 mt-1 text-sm text-gray-200">{selectedElement.text || <span className="text-gray-500 italic">No text content</span>}</p>
+                    <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider">{t('editor.current_text')}</h3>
+                    <p className="p-2 bg-[#0d1117] rounded border border-gray-700 mt-1 text-sm text-gray-200">{selectedElement.text || <span className="text-gray-500 italic">{t('editor.no_text')}</span>}</p>
                 </div>
                 
                 <div className="mb-4 p-3 bg-[#0d1117] rounded border border-gray-700">
@@ -501,9 +503,9 @@ function Editor() {
                             onChange={(e) => setAiOnlyVisual(e.target.checked)}
                             className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-purple-600 focus:ring-purple-500"
                         />
-                        <span className="text-sm text-gray-300">🤖 AI-Only Detection</span>
+                        <span className="text-sm text-gray-300">{t('editor.ai_only')}</span>
                     </label>
-                    <p className="text-xs text-gray-500 mt-1">Only notify when AI determines the change is meaningful</p>
+                    <p className="text-xs text-gray-500 mt-1">{t('editor.ai_only_desc')}</p>
                 </div>
             </div>
         )}
@@ -515,7 +517,7 @@ function Editor() {
                    <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10">
                        <div className="flex flex-col items-center">
                            <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-                           <p className="text-gray-400">Loading site...</p>
+                           <p className="text-gray-400">{t('editor.loading')}</p>
                        </div>
                    </div>
                 )}
@@ -531,14 +533,14 @@ function Editor() {
                                 )}
                             </div>
                             <h3 className="text-xl font-bold text-white mb-2">
-                                {monitorType === 'visual' ? 'Visual Monitoring Active' : 'Full Page Text Monitoring'}
+                                {monitorType === 'visual' ? t('editor.visual_active') : t('editor.text_active')}
                             </h3>
                             <p className="text-gray-300">
                                 {monitorType === 'visual' 
-                                    ? 'We will monitor the entire page for visual changes.' 
-                                    : 'We will monitor the full text content of the page.'}
+                                    ? t('editor.visual_active_desc') 
+                                    : t('editor.text_active_desc')}
                             </p>
-                            <p className="text-gray-400 text-sm mt-4">Element selection is disabled in this mode.</p>
+                            <p className="text-gray-400 text-sm mt-4">{t('editor.selection_disabled')}</p>
                         </div>
                     </div>
                 )}
@@ -552,14 +554,14 @@ function Editor() {
              />
              {!proxyUrl && (
                  <div className="absolute inset-0 flex items-center justify-center text-gray-400">
-                     Enter a URL to verify selector
+                     {t('editor.enter_url_verify')}
                  </div>
              )}
           </div>
             </div>
           ) : (
             <div className="flex items-center justify-center h-full text-gray-600">
-                Enter a URL to start
+                {t('editor.enter_url_start')}
             </div>
           )}
         </div>
