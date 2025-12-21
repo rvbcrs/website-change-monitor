@@ -13,6 +13,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@deltawatch/shared": "workspace:*",
     "@scalar/express-api-reference": "^0.8.28",
     "bcrypt": "^6.0.0",
     "cheerio": "^1.0.0-rc.12",

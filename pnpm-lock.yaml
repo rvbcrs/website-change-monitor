@@ -189,6 +189,9 @@ importers:
 
   apps/web/server:
     dependencies:
+      '@deltawatch/shared':
+        specifier: workspace:*
+        version: link:../../../packages/shared
       '@scalar/express-api-reference':
         specifier: ^0.8.28
         version: 0.8.28

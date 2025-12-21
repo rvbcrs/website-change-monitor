@@ -513,6 +513,23 @@ function Editor() {
         <div className="flex-1 bg-[#0d1117] relative flex flex-col">
           {proxyUrl ? (
             <div className="flex-1 relative bg-gray-900">
+                {/* Iframe container - base layer */}
+                <div className="absolute inset-0 bg-white">
+                    <iframe 
+                        src={proxyUrl} 
+                        className="w-full h-full border-0"
+                        title="Website Preview"
+                        sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                        onLoad={handleIframeLoad}
+                    />
+                    {!proxyUrl && (
+                        <div className="absolute inset-0 flex items-center justify-center text-gray-400">
+                            {t('editor.enter_url_verify')}
+                        </div>
+                    )}
+                </div>
+                
+                {/* Loading overlay - shown while loading, blocks interaction */}
                 {isLoading && (
                    <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10">
                        <div className="flex flex-col items-center">
@@ -522,6 +539,7 @@ function Editor() {
                    </div>
                 )}
                 
+                {/* Visual/body mode overlay - shown when visual monitoring is active */}
                 {(monitorType === 'visual' || (monitorType === 'text' && selectedElement && selectedElement.selector === 'body')) && !isLoading && proxyUrl && (
                     <div className="absolute inset-0 z-20 bg-blue-900/10 pointer-events-auto flex items-center justify-center backdrop-blur-[1px] border-4 border-blue-500/50">
                         <div className="bg-[#161b22] p-6 rounded-lg shadow-2xl border border-blue-500/50 text-center max-w-md">
@@ -544,20 +562,6 @@ function Editor() {
                         </div>
                     </div>
                 )}
-                <div className="absolute inset-0 bg-white">
-             <iframe 
-                src={proxyUrl} 
-                className="w-full h-full border-0"
-                title="Website Preview"
-                sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-                onLoad={handleIframeLoad}
-             />
-             {!proxyUrl && (
-                 <div className="absolute inset-0 flex items-center justify-center text-gray-400">
-                     {t('editor.enter_url_verify')}
-                 </div>
-             )}
-          </div>
             </div>
           ) : (
             <div className="flex items-center justify-center h-full text-gray-600">

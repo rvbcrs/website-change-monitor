@@ -7,4 +7,5 @@ apps/web/server/public/screenshots/*
 apps/web/server/*.png
 *.tar
 server/chrome_user_data
+apps/web/server/chrome_user_data
 *.env

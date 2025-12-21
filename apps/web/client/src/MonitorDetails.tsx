@@ -65,7 +65,8 @@ function MonitorDetails() {
                     const found = data.data.find((m: Monitor) => m.id === parseInt(id || '0'));
                     if (found) {
                         setMonitor(found);
-                        const graphData: (GraphDataPoint | null)[] = found.history.map((h: HistoryRecord) => {
+                        const historyArray = Array.isArray(found.history) ? found.history : [];
+                        const graphData: (GraphDataPoint | null)[] = historyArray.map((h: HistoryRecord) => {
                              if (h.status === 'error') return null;
 
                              let valStr = h.value || "";
@@ -294,11 +295,17 @@ function MonitorDetails() {
     const showGraph = monitor.type !== 'visual' && monitor.selector !== 'body' && numericValues.length >= 2;
 
     const monitorTags: string[] = (() => {
-        try { return JSON.parse(monitor.tags || '[]'); } catch { return []; }
+        try { 
+            const parsed = JSON.parse(monitor.tags || '[]'); 
+            return Array.isArray(parsed) ? parsed : [];
+        } catch { return []; }
     })();
 
     const monitorKeywords: Keyword[] = (() => {
-        try { return JSON.parse(monitor.keywords || '[]'); } catch { return []; }
+        try { 
+            const parsed = JSON.parse(monitor.keywords || '[]'); 
+            return Array.isArray(parsed) ? parsed : [];
+        } catch { return []; }
     })();
 
     return (
@@ -517,7 +524,7 @@ function MonitorDetails() {
                         <div className="absolute left-[11px] top-4 bottom-4 w-0.5 bg-gray-700"></div>
 
                         <div className="space-y-0">
-                            {monitor.history.filter(item => {
+                            {(Array.isArray(monitor.history) ? monitor.history : []).filter(item => {
                                 if (historyFilter === 'all') return true;
                                 if (historyFilter === 'changed') return item.status === 'changed';
                                 if (historyFilter === 'error') return item.status === 'error';

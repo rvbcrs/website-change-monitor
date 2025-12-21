@@ -143,6 +143,11 @@ function initDb(): void {
                     console.log('Migrating: Adding last_healed column to monitors table...');
                     db.run("ALTER TABLE monitors ADD COLUMN last_healed DATETIME");
                 }
+                const hasConsecutiveFailures = rows.some(r => r.name === 'consecutive_failures');
+                if (!hasConsecutiveFailures) {
+                    console.log('Migrating: Adding consecutive_failures column to monitors table...');
+                    db.run("ALTER TABLE monitors ADD COLUMN consecutive_failures INTEGER DEFAULT 0");
+                }
             } else {
                 console.error("Error checking table info:", err);
             }

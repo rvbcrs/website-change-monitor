@@ -15,6 +15,13 @@ import type { Monitor, Settings, Keyword } from './types';
 
 chromium.use(stealth());
 
+// Helper to resolve public folder path (works in both dev and Docker/production)
+const getPublicPath = (...subpaths: string[]): string => {
+    const directPath = path.join(__dirname, 'public', ...subpaths);
+    if (fs.existsSync(directPath)) return directPath;
+    return path.join(__dirname, '..', 'public', ...subpaths);
+};
+
 interface LaunchOptions {
     headless: boolean;
     proxy?: {
@@ -51,6 +58,11 @@ const INTERVAL_MINUTES: Record<string, number> = {
     '24h': 1440,
     '1w': 10080
 };
+
+// Failure tracking constants
+const MAX_CONSECUTIVE_FAILURES = 5;  // After 5 failures, put monitor in cooldown
+const COOLDOWN_MINUTES = 30;         // Skip monitor for 30 minutes after max failures
+const OVERALL_CHECK_TIMEOUT = 60000; // 60 seconds max per monitor check
 
 /**
  * Retry wrapper with exponential backoff for network operations
@@ -102,6 +114,19 @@ async function checkMonitors(): Promise<void> {
 
         const now = new Date();
         const dueMonitors = monitors.filter(m => {
+            // Check if monitor is in cooldown due to consecutive failures
+            const consecutiveFailures = (m as any).consecutive_failures || 0;
+            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && m.last_check) {
+                const cooldownEnd = new Date(new Date(m.last_check).getTime() + COOLDOWN_MINUTES * 60000);
+                if (now < cooldownEnd) {
+                    console.log(`[${m.name || m.id}] Skipping - in cooldown (${consecutiveFailures} consecutive failures)`);
+                    return false;
+                }
+                // Cooldown expired, try again
+                console.log(`[${m.name || m.id}] Cooldown expired, retrying...`);
+            }
+            
+            // Check if it's time for the next check
             if (!m.last_check) return true;
             const lastCheck = new Date(m.last_check);
             const intervalMins = INTERVAL_MINUTES[m.interval] || 60;
@@ -122,7 +147,20 @@ async function checkMonitors(): Promise<void> {
             pooledContext = await acquireBrowser();
             
             for (const monitor of dueMonitors) {
-                await checkSingleMonitor(monitor, pooledContext.context);
+                // Wrap each check in an overall timeout to prevent indefinite blocking
+                try {
+                    await Promise.race([
+                        checkSingleMonitor(monitor, pooledContext.context),
+                        new Promise<void>((_, reject) => 
+                            setTimeout(() => reject(new Error('Overall check timeout exceeded')), OVERALL_CHECK_TIMEOUT)
+                        )
+                    ]);
+                } catch (timeoutErr: any) {
+                    console.error(`[${monitor.name || monitor.id}] ${timeoutErr.message}`);
+                    // Increment failure count for timeout
+                    db.run("UPDATE monitors SET consecutive_failures = consecutive_failures + 1, last_check = ? WHERE id = ?", 
+                        [new Date().toISOString(), monitor.id]);
+                }
             }
         } catch (e: any) {
             logError('scheduler', `Browser pool error: ${e.message}`, e.stack);
@@ -164,24 +202,24 @@ async function checkSingleMonitor(monitor: Monitor, context: BrowserContext | nu
         response = await withRetry(
             async () => {
                 try {
-                    const resp = await page!.goto(monitor.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+                    const resp = await page!.goto(monitor.url, { waitUntil: 'domcontentloaded', timeout: 20000 });
                     await page!.waitForTimeout(2000);
                     try {
-                        await page!.waitForLoadState('networkidle', { timeout: 10000 });
+                        await page!.waitForLoadState('networkidle', { timeout: 5000 });
                     } catch (e) {
-                        console.log(`[${monitorName}] networkidle timeout, proceeding with current state`);
+                        // networkidle is optional, ignore failure
                     }
                     return resp;
                 } catch (e) {
-                    console.log(`[${monitorName}] domcontentloaded failed, trying load event`);
-                    const resp = await page!.goto(monitor.url, { waitUntil: 'load', timeout: 45000 });
-                    await page!.waitForTimeout(3000);
+                    console.log(`[${monitorName}] domcontentloaded failed, trying commit (least strict)`);
+                    const resp = await page!.goto(monitor.url, { waitUntil: 'commit', timeout: 20000 });
+                    await page!.waitForTimeout(5000); // Wait longer for hydration if we only got commit
                     return resp;
                 }
             },
             { 
-                maxRetries: 3, 
-                baseDelay: 2000, 
+                maxRetries: 2, 
+                baseDelay: 1000, 
                 monitorId: monitor.id, 
                 operation: `Navigation to ${monitor.url}` 
             }
@@ -312,7 +350,7 @@ async function checkSingleMonitor(monitor: Monitor, context: BrowserContext | nu
         let changed = false;
         let status = 'unchanged';
 
-        screenshotPath = path.join(__dirname, 'public', 'screenshots', `monitor-${monitor.id}-${Date.now()}.png`);
+        screenshotPath = getPublicPath('screenshots', `monitor-${monitor.id}-${Date.now()}.png`);
         await page.screenshot({ path: screenshotPath, fullPage: true });
 
         let visualChange = false;
@@ -338,7 +376,7 @@ async function checkSingleMonitor(monitor: Monitor, context: BrowserContext | nu
                         const diff = new PNG({ width, height });
                         pixelmatch(img1.data, img2.data, diff.data, width, height, { threshold: 0.1 });
                         diffFilename = `diff-${monitor.id}-${Date.now()}.png`;
-                        const diffPath = path.join(__dirname, 'public', 'screenshots', diffFilename);
+                        const diffPath = getPublicPath('screenshots', diffFilename);
                         fs.writeFileSync(diffPath, PNG.sync.write(diff));
                     } catch (e) {
                         // Diff image generation failed
@@ -358,7 +396,7 @@ async function checkSingleMonitor(monitor: Monitor, context: BrowserContext | nu
                 if (numDiffPixels > 0) {
                     visualChange = true;
                     diffFilename = `diff-${monitor.id}-${Date.now()}.png`;
-                    const diffPath = path.join(__dirname, 'public', 'screenshots', diffFilename);
+                    const diffPath = getPublicPath('screenshots', diffFilename);
                     fs.writeFileSync(diffPath, PNG.sync.write(diff));
                 }
             } catch (e: any) {
@@ -514,7 +552,7 @@ async function checkSingleMonitor(monitor: Monitor, context: BrowserContext | nu
                         await renderPage.setViewportSize({ width: 600, height: Math.ceil(boundingBox.height) + 50 });
 
                         const filename = `diff_render_${monitor.id}_${Date.now()}.png`;
-                        diffImagePath = path.join(__dirname, 'public', 'screenshots', filename);
+                        diffImagePath = getPublicPath('screenshots', filename);
 
                         await renderPage.screenshot({ path: diffImagePath });
                         await renderPage.close();
@@ -581,7 +619,7 @@ async function checkSingleMonitor(monitor: Monitor, context: BrowserContext | nu
 
             db.run(
                 `INSERT INTO check_history (monitor_id, status, value, created_at, screenshot_path, prev_screenshot_path, diff_screenshot_path, ai_summary, http_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [monitor.id, status, text, nowStr, screenshotPath, monitor.last_screenshot, diffFilename ? path.join(__dirname, 'public', 'screenshots', diffFilename) : null, aiSummary, httpStatus],
+                [monitor.id, status, text, nowStr, screenshotPath, monitor.last_screenshot, diffFilename ? getPublicPath('screenshots', diffFilename) : null, aiSummary, httpStatus],
                 (err: Error | null) => {
                     if (err) console.error("DB Insert Error (History):", err.message);
                     else console.log(`[${monitorName}] History saved to DB`);
@@ -676,13 +714,13 @@ async function checkSingleMonitor(monitor: Monitor, context: BrowserContext | nu
         if (changed) {
             if (monitor.type === 'visual') {
                 db.run(
-                    `UPDATE monitors SET last_check = ?, last_value = ?, last_screenshot = ?, last_change = ?, unread_count = unread_count + 1 WHERE id = ?`,
+                    `UPDATE monitors SET last_check = ?, last_value = ?, last_screenshot = ?, last_change = ?, unread_count = unread_count + 1, consecutive_failures = 0 WHERE id = ?`,
                     [nowStr, text, screenshotPath, nowStr, monitor.id],
                     (err: Error | null) => { if (err) console.error("Update Error:", err); }
                 );
             } else {
                 db.run(
-                    `UPDATE monitors SET last_check = ?, last_value = ?, last_change = ?, unread_count = unread_count + 1 WHERE id = ?`,
+                    `UPDATE monitors SET last_check = ?, last_value = ?, last_change = ?, unread_count = unread_count + 1, consecutive_failures = 0 WHERE id = ?`,
                     [nowStr, text, nowStr, monitor.id],
                     (err: Error | null) => { if (err) console.error("Update Error:", err); }
                 );
@@ -691,13 +729,13 @@ async function checkSingleMonitor(monitor: Monitor, context: BrowserContext | nu
         } else {
             if (monitor.type === 'visual') {
                 db.run(
-                    `UPDATE monitors SET last_check = ?, last_screenshot = ? WHERE id = ?`,
+                    `UPDATE monitors SET last_check = ?, last_screenshot = ?, consecutive_failures = 0 WHERE id = ?`,
                     [nowStr, screenshotPath, monitor.id],
                     (err: Error | null) => { if (err) console.error("Update Error:", err); }
                 );
             } else {
                 db.run(
-                    `UPDATE monitors SET last_check = ? WHERE id = ?`,
+                    `UPDATE monitors SET last_check = ?, consecutive_failures = 0 WHERE id = ?`,
                     [nowStr, monitor.id],
                     (err: Error | null) => { if (err) console.error("Update Error:", err); }
                 );
@@ -708,6 +746,8 @@ async function checkSingleMonitor(monitor: Monitor, context: BrowserContext | nu
     } catch (error: any) {
         console.error(`[${monitorName}] Error:`, error.message);
         db.run(`INSERT INTO check_history (monitor_id, status, response_time, created_at, value) VALUES (?, ?, ?, ?, ?)`, [monitor.id, 'error', 0, new Date().toISOString(), error.message]);
+        // Increment consecutive failures on error
+        db.run(`UPDATE monitors SET consecutive_failures = consecutive_failures + 1, last_check = ? WHERE id = ?`, [new Date().toISOString(), monitor.id]);
     } finally {
         if (page) await page.close();
         if (pooledContext) await pooledContext.release();
@@ -794,7 +834,7 @@ async function previewScenario(url: string, scenarioConfig: string | ScenarioSte
         await page.waitForTimeout(1000);
 
         const filename = `preview-${Date.now()}.png`;
-        const filepath = path.join(__dirname, 'public', 'screenshots', filename);
+        const filepath = getPublicPath('screenshots', filename);
         await page.screenshot({ path: filepath, fullPage: true });
         screenshotFilename = filename;
 
@@ -810,7 +850,7 @@ async function previewScenario(url: string, scenarioConfig: string | ScenarioSte
 
 async function cleanupScreenshots() {
     console.log('Running daily screenshot cleanup...');
-    const screenshotsDir = path.join(__dirname, 'public', 'screenshots');
+    const screenshotsDir = getPublicPath('screenshots');
     const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
     const now = Date.now();
 
@@ -841,9 +881,21 @@ async function cleanupScreenshots() {
 }
 
 function startScheduler(): void {
+    let isCheckRunning = false;
+
     // Run every minute
-    cron.schedule('* * * * *', () => {
-        checkMonitors();
+    cron.schedule('* * * * *', async () => {
+        if (isCheckRunning) {
+            console.log('Skipping monitor check: previous run still active');
+            return;
+        }
+
+        isCheckRunning = true;
+        try {
+            await checkMonitors();
+        } finally {
+            isCheckRunning = false;
+        }
     });
     
     // Run cleanup every day at midnight

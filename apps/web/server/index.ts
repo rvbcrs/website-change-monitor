@@ -22,8 +22,23 @@ chromium.use(stealth());
 const app = express();
 const PORT = envConfig.PORT;
 
+// Trust reverse proxy (nginx, Cloudflare, etc.)
+// This is required for express-rate-limit to work correctly behind a proxy
+app.set('trust proxy', 1);
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+// Helper to resolve public folder path (works in both dev and Docker/production)
+// In dev: __dirname is the source folder, public is at ./public
+// In Docker: __dirname is dist/, public is at ../public
+const getPublicPath = (...subpaths: string[]): string => {
+    // Try direct path first (dev mode)
+    const directPath = path.join(__dirname, 'public', ...subpaths);
+    if (fs.existsSync(directPath)) return directPath;
+    // Try parent path (Docker/production mode)
+    return path.join(__dirname, '..', 'public', ...subpaths);
+};
 
 // Rate Limiting
 import rateLimit from 'express-rate-limit';
@@ -217,7 +232,7 @@ app.get('/api/ai/models', auth.authenticateToken, async (req: AuthRequest, res: 
 });
 
 // Serve static files
-app.use('/static', express.static(path.join(__dirname, 'public')));
+app.use('/static', express.static(getPublicPath()));
 
 interface StatsRow {
     total_checks: number;
@@ -624,11 +639,54 @@ app.get('/proxy', async (req: Request, res: Response) => {
 
             await page.waitForTimeout(1000);
 
+            // Auto-dismiss cookie banners
+            // First: Try to handle Sourcepoint/eBay consent iframes (used by Marktplaats, eBay, etc.)
+            try {
+                const consentFrame = page.frameLocator('iframe[title="SP Consent Message"], iframe[id^="sp_message_iframe_"]');
+                const acceptButton = consentFrame.locator('button:has-text("Accepteren"), button:has-text("Accept"), button:has-text("Akkoord"), button[title="Accepteren"]');
+                
+                // Try clicking the accept button in the iframe with a short timeout
+                await acceptButton.first().click({ timeout: 3000 });
+                console.log('[Proxy] Dismissed Sourcepoint cookie banner in iframe');
+                await page.waitForTimeout(500);
+            } catch (e) {
+                // Sourcepoint iframe not found or click failed, try generic selectors
+                console.log('[Proxy] No Sourcepoint iframe found, trying generic selectors...');
+                
+                const cookieSelectors = [
+                    'button[id*="accept"]',
+                    'button[id*="Accept"]',
+                    'button[class*="accept"]',
+                    'button:has-text("Accepteren")',
+                    'button:has-text("Akkoord")',
+                    'button:has-text("Accept")',
+                    '#gdpr-consent-accept-button',
+                    'button[data-consent="accept"]',
+                    'a:has-text("Doorgaan zonder")',
+                ];
+
+                for (const selector of cookieSelectors) {
+                    try {
+                        const button = await page.$(selector);
+                        if (button) {
+                            console.log(`[Proxy] Found cookie button: ${selector}`);
+                            await button.click();
+                            await page.waitForTimeout(500);
+                            break;
+                        }
+                    } catch (err) {
+                        // Selector didn't match or click failed, continue
+                    }
+                }
+            }
+
+            await page.waitForTimeout(500);
+
         } catch (e: any) {
             console.log("Navigation error (likely timeout), proceeding:", e.message);
         }
 
-        const selectorScript = fs.readFileSync(path.join(__dirname, 'public', 'selector.js'), 'utf8');
+        const selectorScript = fs.readFileSync(getPublicPath('selector.js'), 'utf8');
 
         const injectScripts = async () => {
             await page.evaluate((scriptContent: string) => {
@@ -781,7 +839,7 @@ app.post('/run-scenario-live', async (req: Request, res: Response) => {
         await page.waitForTimeout(3000);
 
         const filename = `live-run-${Date.now()}.png`;
-        const filepath = path.join(__dirname, 'public', 'screenshots', filename);
+        const filepath = getPublicPath('screenshots', filename);
         await page.screenshot({ path: filepath, fullPage: true });
 
         console.log(`[RunScenarioLive] Done! Browser stays open for 5s...`);
@@ -903,11 +961,14 @@ app.post('/api/auth/register', async (req: Request, res: Response) => {
 });
 
 app.post('/api/auth/login', async (req: Request, res: Response) => {
+    console.log('[Auth] Login attempt for:', req.body?.email);
     try {
         const { email, password } = req.body;
         const result = await auth.loginUser(email, password);
+        console.log('[Auth] Login successful for:', email);
         res.json(result);
     } catch (e: any) {
+        console.log('[Auth] Login failed for:', req.body?.email, '- Reason:', e.message);
         res.status(401).json({ error: e.message });
     }
 });

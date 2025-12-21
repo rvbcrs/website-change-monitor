@@ -158,6 +158,12 @@ const Dashboard = () => {
       e.stopPropagation();
       
       try {
+          // Parse tags if it's a JSON string to prevent double-encoding
+          let parsedTags = [];
+          try {
+              parsedTags = typeof monitor.tags === 'string' ? JSON.parse(monitor.tags || '[]') : (monitor.tags || []);
+          } catch { parsedTags = []; }
+          
           const newMonitor = {
               url: monitor.url,
               selector: monitor.selector,
@@ -165,7 +171,7 @@ const Dashboard = () => {
               type: monitor.type,
               interval: monitor.interval,
               name: `${monitor.name || 'Monitor'} (Copy)`,
-              tags: monitor.tags,
+              tags: Array.isArray(parsedTags) ? parsedTags : [],
           };
           
           const res = await authFetch(`${API_BASE}/monitors`, {

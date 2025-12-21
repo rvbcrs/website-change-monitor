@@ -4,6 +4,9 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    include: ['@deltawatch/shared']
+  },
   server: {
     proxy: {
       '/api': {
@@ -58,5 +61,10 @@ export default defineConfig({
       },
     },
     host: true // Expose to network
+  },
+  build: {
+    commonjsOptions: {
+      include: [/node_modules/, /@deltawatch\/shared/]
+    }
   }
 })
