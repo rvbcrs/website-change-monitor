@@ -674,7 +674,7 @@ async function checkSingleMonitor(monitor: Monitor, context: BrowserContext | nu
                 }
             } else {
                 console.log(`[${monitorName}] First run - Saving initial value without alert.`);
-                changed = true;
+                // First run: save initial value but don't mark as 'changed' to avoid badge increment
                 status = 'unchanged';
             }
 
@@ -788,16 +788,18 @@ async function checkSingleMonitor(monitor: Monitor, context: BrowserContext | nu
                 fs.unlink(screenshotPath, (delErr) => { if (delErr) console.error("Error deleting unused screenshot:", delErr) });
             }
         } else {
+            // No change detected (or first run)
             if (monitor.type === 'visual') {
                 db.run(
-                    `UPDATE monitors SET last_check = ?, last_screenshot = ?, consecutive_failures = 0 WHERE id = ?`,
-                    [nowStr, screenshotPath, monitor.id],
+                    `UPDATE monitors SET last_check = ?, last_screenshot = ?, last_value = ?, consecutive_failures = 0 WHERE id = ?`,
+                    [nowStr, screenshotPath, text, monitor.id],
                     (err: Error | null) => { if (err) console.error("Update Error:", err); }
                 );
             } else {
+                // For text monitors, always update last_value (needed for first run baseline)
                 db.run(
-                    `UPDATE monitors SET last_check = ?, consecutive_failures = 0 WHERE id = ?`,
-                    [nowStr, monitor.id],
+                    `UPDATE monitors SET last_check = ?, last_value = ?, consecutive_failures = 0 WHERE id = ?`,
+                    [nowStr, text, monitor.id],
                     (err: Error | null) => { if (err) console.error("Update Error:", err); }
                 );
                 fs.unlink(screenshotPath, (delErr) => { if (delErr) console.error("Error deleting unused screenshot:", delErr) });
