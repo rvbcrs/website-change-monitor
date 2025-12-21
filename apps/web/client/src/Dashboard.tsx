@@ -38,6 +38,7 @@ const Dashboard = () => {
   const [showStats, setShowStats] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [groupBy, setGroupBy] = useState<'none' | 'type'>('none')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'error'>('all')
   const navigate = useNavigate()
   const { showToast } = useToast()
   const { confirm } = useDialog()
@@ -224,6 +225,18 @@ const Dashboard = () => {
   }))].sort();
 
   const filteredMonitors = monitors.filter(m => {
+      // Filter by status (from stats tiles)
+      if (statusFilter === 'active') {
+          if (!m.active) return false;
+      } else if (statusFilter === 'inactive') {
+          if (m.active) return false;
+      } else if (statusFilter === 'error') {
+          // Check if monitor has any visible errors in history history
+          // OR if the last check failed (http_status >= 400)
+          const hasError = m.history?.some(h => h.status === 'error' || (h.http_status !== null && h.http_status >= 400));
+          if (!hasError) return false;
+      }
+
       // Filter by tag
       if (selectedTag) {
           try { 
@@ -464,7 +477,11 @@ const Dashboard = () => {
         </div>
 
         <div className={`transition-all duration-300 ease-in-out overflow-hidden ${showStats ? 'max-h-[500px] opacity-100 mb-6' : 'max-h-0 opacity-0 mb-0'}`}>
-            <StatsOverview ref={statsRef} />
+            <StatsOverview 
+                ref={statsRef} 
+                onFilterClick={(filter) => setStatusFilter(filter === statusFilter ? 'all' : filter)}
+                activeFilter={statusFilter}
+            />
         </div>
 
         {allTags.length > 0 && (
@@ -501,9 +518,20 @@ const Dashboard = () => {
             <div className={`transition-all duration-300 ease-in-out space-y-2`}>
                 {filteredMonitors.length === 0 && (
                     <div className="text-center py-20 bg-[#161b22] rounded-lg border border-dashed border-gray-700">
-                        <h3 className="text-lg font-medium text-gray-300">{selectedTag ? t('dashboard.no_deltas_tag') : t('dashboard.no_deltas')}</h3>
-                        <p className="text-gray-500 mb-4">{selectedTag ? t('dashboard.try_another_tag') : t('dashboard.start_creating')}</p>
-                        {!selectedTag && <Link to="/new" className="text-blue-400 hover:text-blue-300 hover:underline">{t('dashboard.new_delta')}</Link>}
+                        <h3 className="text-lg font-medium text-gray-300">
+                            {statusFilter !== 'all' ? t('dashboard.no_monitors_filter', { filter: statusFilter }) :
+                             selectedTag ? t('dashboard.no_deltas_tag') : t('dashboard.no_deltas')}
+                        </h3>
+                        <p className="text-gray-500 mb-4">
+                            {statusFilter !== 'all' ? t('dashboard.try_clearing_filter') :
+                             selectedTag ? t('dashboard.try_another_tag') : t('dashboard.start_creating')}
+                        </p>
+                        {statusFilter !== 'all' && (
+                            <button onClick={() => setStatusFilter('all')} className="text-blue-400 hover:text-blue-300 hover:underline mb-4 block mx-auto">
+                                Clear Filter
+                            </button>
+                        )}
+                        {!selectedTag && statusFilter === 'all' && <Link to="/new" className="text-blue-400 hover:text-blue-300 hover:underline">{t('dashboard.new_delta')}</Link>}
                     </div>
                 )}
 
