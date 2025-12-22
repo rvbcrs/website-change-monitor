@@ -89,38 +89,44 @@ const StatsOverview = forwardRef<StatsOverviewRef, StatsOverviewProps>(function 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             {/* Total Monitors - Click to show Active */}
             <div 
-                onClick={() => onFilterClick?.('active')}
-                className={`bg-[#161b22] p-4 rounded-lg border flex flex-col justify-between h-24 relative overflow-hidden group cursor-pointer transition-all ${
+                onClick={() => {
+                    console.log('Filter clicked: active');
+                    onFilterClick?.('active');
+                }}
+                className={`bg-[#161b22] p-4 rounded-lg border flex flex-col justify-between h-24 relative overflow-hidden group cursor-pointer select-none transition-all ${
                     activeFilter === 'active' ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-800 hover:border-gray-600'
                 }`}
             >
-                <div className="flex justify-between items-start z-10 relative">
+                <div className="flex justify-between items-start z-10 relative pointer-events-none">
                     <div className="text-gray-400 text-xs uppercase font-bold tracking-wider">{t('stats.active')}</div>
                     <Activity size={16} className="text-blue-500 opacity-75" />
                 </div>
-                <div className="flex items-end gap-2 z-10 relative">
+                <div className="flex items-end gap-2 z-10 relative pointer-events-none">
                     <div className="text-2xl font-bold text-white">{stats.active_monitors}</div>
                     <div className="text-xs text-gray-500 mb-1">/ {stats.total_monitors} Total</div>
                 </div>
-                <div className="absolute -right-4 -bottom-4 bg-blue-500/10 w-24 h-24 rounded-full blur-xl group-hover:bg-blue-500/20 transition-colors"></div>
+                <div className="absolute -right-4 -bottom-4 bg-blue-500/10 w-24 h-24 rounded-full blur-xl group-hover:bg-blue-500/20 transition-colors pointer-events-none"></div>
             </div>
 
             {/* 24h Checks - Click to show Inactive/All */}
             <div 
-                onClick={() => onFilterClick?.('all')}
-                className={`bg-[#161b22] p-4 rounded-lg border flex flex-col justify-between h-24 relative overflow-hidden group cursor-pointer transition-all ${
+                onClick={() => {
+                    console.log('Filter clicked: all');
+                    onFilterClick?.('all');
+                }}
+                className={`bg-[#161b22] p-4 rounded-lg border flex flex-col justify-between h-24 relative overflow-hidden group cursor-pointer select-none transition-all ${
                     activeFilter === 'all' ? 'border-purple-500 ring-1 ring-purple-500' : 'border-gray-800 hover:border-gray-600'
                 }`}
             >
-                <div className="flex justify-between items-start z-10 relative">
+                <div className="flex justify-between items-start z-10 relative pointer-events-none">
                     <div className="text-gray-400 text-xs uppercase font-bold tracking-wider">{t('stats.checks_24h')}</div>
                     <TrendingUp size={16} className="text-purple-500 opacity-75" />
                 </div>
-                <div className="flex items-end gap-2 z-10 relative">
+                <div className="flex items-end gap-2 z-10 relative pointer-events-none">
                     <div className="text-2xl font-bold text-white">{stats.checks_24h.toLocaleString()}</div>
                     <div className="text-xs text-gray-500 mb-1">Checks</div>
                 </div>
-                <div className="absolute -right-4 -bottom-4 bg-purple-500/10 w-24 h-24 rounded-full blur-xl group-hover:bg-purple-500/20 transition-colors"></div>
+                <div className="absolute -right-4 -bottom-4 bg-purple-500/10 w-24 h-24 rounded-full blur-xl group-hover:bg-purple-500/20 transition-colors pointer-events-none"></div>
             </div>
 
             {/* Success Rate */}
@@ -138,17 +144,20 @@ const StatsOverview = forwardRef<StatsOverviewRef, StatsOverviewProps>(function 
 
             {/* Errors - Click to show Errors */}
             <div 
-                onClick={() => onFilterClick?.('error')}
-                className={`p-4 rounded-lg border flex flex-col justify-between h-24 relative overflow-hidden group transition-all duration-300 cursor-pointer ${
+                onClick={() => {
+                    console.log('Filter clicked: error');
+                    onFilterClick?.('error');
+                }}
+                className={`p-4 rounded-lg border flex flex-col justify-between h-24 relative overflow-hidden group transition-all duration-300 cursor-pointer select-none ${
                 stats.errors_24h > 0 
                 ? "bg-[#161b22] border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.2)]" 
                 : "bg-[#161b22] border-gray-800 hover:border-gray-600"
             } ${activeFilter === 'error' ? 'ring-1 ring-red-500' : ''}`}>
-                <div className="flex justify-between items-start z-10 relative">
+                <div className="flex justify-between items-start z-10 relative pointer-events-none">
                     <div className="text-gray-400 text-xs uppercase font-bold tracking-wider">{t('stats.errors_24h')}</div>
                     <AlertTriangle size={16} className={stats.errors_24h === 0 ? "text-gray-600" : "text-red-500 opacity-75"} />
                 </div>
-                <div className="flex items-end gap-2 z-10 relative">
+                <div className="flex items-end gap-2 z-10 relative pointer-events-none">
                     <div className={`text-2xl font-bold ${stats.errors_24h === 0 ? "text-gray-400" : "text-red-400"}`}>{stats.errors_24h}</div>
                     <div className="text-xs text-gray-500 mb-1">Global Errors</div>
                 </div>
