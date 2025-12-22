@@ -204,6 +204,7 @@
         "checks_24h": "Checks (24u)",
         "health": "Gezondheid",
         "success_ratio": "succes ratio",
-        "errors_24h": "Fouten (24u)"
+        "errors_24h": "Fouten (24u)",
+        "current_errors": "Huidige Fouten"
     }
 }

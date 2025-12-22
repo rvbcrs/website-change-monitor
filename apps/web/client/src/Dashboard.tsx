@@ -407,6 +407,11 @@ const Dashboard = () => {
         </Link>
     );
 
+    // Calculate current error count for StatsOverview
+    const currentErrors = monitors.filter(m => 
+        m.active && m.history?.some(h => h.status === 'error' || (h.http_status !== null && h.http_status >= 400))
+    ).length;
+
     return (
     <div className="h-full flex flex-col">
        <div className="flex flex-col gap-3 mb-6">
@@ -475,6 +480,7 @@ const Dashboard = () => {
             </div>
         </div>
 
+       
         <div className={`transition-all duration-300 ease-in-out overflow-hidden ${showStats ? 'max-h-[500px] opacity-100 mb-6' : 'max-h-0 opacity-0 mb-0'}`}>
             <StatsOverview 
                 ref={statsRef} 
@@ -483,6 +489,7 @@ const Dashboard = () => {
                     setStatusFilter(filter === statusFilter ? 'all' : filter);
                 }}
                 activeFilter={statusFilter}
+                currentErrorCount={currentErrors}
             />
         </div>
 

@@ -204,6 +204,7 @@
         "checks_24h": "Checks (24h)",
         "health": "Health",
         "success_ratio": "success ratio",
-        "errors_24h": "Errors (24h)"
+        "errors_24h": "Errors (24h)",
+        "current_errors": "Current Errors"
     }
 }

@@ -17,9 +17,10 @@ export interface StatsOverviewRef {
 interface StatsOverviewProps {
     onFilterClick?: (filter: 'all' | 'active' | 'inactive' | 'error') => void;
     activeFilter?: 'all' | 'active' | 'inactive' | 'error';
+    currentErrorCount?: number;
 }
 
-const StatsOverview = forwardRef<StatsOverviewRef, StatsOverviewProps>(function StatsOverview({ onFilterClick, activeFilter = 'all' }, ref) {
+const StatsOverview = forwardRef<StatsOverviewRef, StatsOverviewProps>(function StatsOverview({ onFilterClick, activeFilter = 'all', currentErrorCount }, ref) {
     const { t } = useTranslation();
     const [stats, setStats] = useState<Stats | null>(null);
     const [loading, setLoading] = useState(true);
@@ -159,22 +160,24 @@ const StatsOverview = forwardRef<StatsOverviewRef, StatsOverviewProps>(function 
                 className={`p-4 rounded-lg border flex flex-col justify-between h-24 relative overflow-hidden group transition-all duration-300 cursor-pointer select-none ${
                     activeFilter === 'error'
                         ? 'bg-red-500/20 border-red-400 shadow-[0_0_20px_rgba(239,68,68,0.4)]'
-                        : stats.errors_24h > 0 
+                        : (currentErrorCount !== undefined ? currentErrorCount : stats.errors_24h) > 0 
                             ? "bg-[#161b22] border-red-500/50 hover:bg-[#1c2128]" 
                             : "bg-[#161b22] border-gray-800 hover:border-gray-600 hover:bg-[#1c2128]"
                 }`}
             >
                 <div className="flex justify-between items-start z-10 relative pointer-events-none">
                      <div className={`text-xs uppercase font-bold tracking-wider ${activeFilter === 'error' ? 'text-white' : 'text-gray-400'}`}>
-                        {activeFilter === 'error' ? '✓ ' + t('dashboard.filter_errors') : t('stats.errors_24h')}
+                        {activeFilter === 'error' ? '✓ ' + t('dashboard.filter_errors') : (currentErrorCount !== undefined ? t('stats.current_errors') : t('stats.errors_24h'))}
                     </div>
-                    <AlertTriangle size={16} className={stats.errors_24h === 0 ? "text-gray-600" : "text-red-500 opacity-75"} />
+                    <AlertTriangle size={16} className={(currentErrorCount !== undefined ? currentErrorCount : stats.errors_24h) === 0 ? "text-gray-600" : "text-red-500 opacity-75"} />
                 </div>
                 <div className="flex items-end gap-2 z-10 relative pointer-events-none">
-                    <div className={`text-2xl font-bold ${stats.errors_24h === 0 ? "text-gray-400" : "text-red-400"}`}>{stats.errors_24h}</div>
+                    <div className={`text-2xl font-bold ${(currentErrorCount !== undefined ? currentErrorCount : stats.errors_24h) === 0 ? "text-gray-400" : "text-red-400"}`}>
+                        {currentErrorCount !== undefined ? currentErrorCount : stats.errors_24h}
+                    </div>
                     <div className="text-xs text-gray-500 mb-1">Global Errors</div>
                 </div>
-                 <div className={`absolute -right-4 -bottom-4 w-24 h-24 rounded-full blur-xl transition-colors pointer-events-none ${stats.errors_24h === 0 ? "bg-gray-500/5" : "bg-red-500/10 group-hover:bg-red-500/20"}`}></div>
+                 <div className={`absolute -right-4 -bottom-4 w-24 h-24 rounded-full blur-xl transition-colors pointer-events-none ${(currentErrorCount !== undefined ? currentErrorCount : stats.errors_24h) === 0 ? "bg-gray-500/5" : "bg-red-500/10 group-hover:bg-red-500/20"}`}></div>
             </div>
         </div>
     );
