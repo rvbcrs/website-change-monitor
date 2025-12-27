@@ -43,6 +43,8 @@ function Editor() {
   const [notifyConfig, setNotifyConfig] = useState<NotifyConfig>({ method: 'all', threshold: '' });
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiOnlyVisual, setAiOnlyVisual] = useState(false);
+  const [retryCount, setRetryCount] = useState(3);
+  const [retryDelay, setRetryDelay] = useState(2000);
 
   const [searchParams] = useSearchParams();
   const [isLoading, setIsLoading] = useState(false)
@@ -62,6 +64,8 @@ function Editor() {
                         setMonitorType(monitor.type);
                         setAiPrompt(monitor.ai_prompt || '');
                         setAiOnlyVisual(!!monitor.ai_only_visual);
+                        setRetryCount(monitor.retry_count ?? 3);
+                        setRetryDelay(monitor.retry_delay ?? 2000);
                         
                         try {
                             if (monitor.notify_config) setNotifyConfig(JSON.parse(monitor.notify_config));
@@ -160,7 +164,7 @@ function Editor() {
   const handleSave = async () => {
     if (!url) return;
     if (monitorType === 'text' && !selectedElement) {
-        alert(t('editor.toasts.select_element'));
+        showToast(t('editor.toasts.select_element'), 'error');
         return;
     }
     
@@ -180,7 +184,9 @@ function Editor() {
                 type: monitorType,
                 notify_config: notifyConfig,
                 ai_prompt: aiPrompt,
-                ai_only_visual: aiOnlyVisual ? 1 : 0
+                ai_only_visual: aiOnlyVisual ? 1 : 0,
+                retry_count: retryCount,
+                retry_delay: retryDelay
             })
         });
         const data = await response.json();
@@ -506,6 +512,49 @@ function Editor() {
                         <span className="text-sm text-gray-300">{t('editor.ai_only')}</span>
                     </label>
                     <p className="text-xs text-gray-500 mt-1">{t('editor.ai_only_desc')}</p>
+                </div>
+
+                {/* Retry Configuration */}
+                <div className="mb-4 p-3 bg-[#0d1117] rounded border border-gray-700">
+                    <h3 className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
+                        🔄 {t('editor.retry_config', 'Retry Configuration')}
+                    </h3>
+                    <div className="space-y-3">
+                        <div>
+                            <label className="text-xs text-gray-400 block mb-1">
+                                {t('editor.retry_count', 'Retry Count')}
+                            </label>
+                            <select
+                                value={retryCount}
+                                onChange={(e) => setRetryCount(Number(e.target.value))}
+                                className="w-full bg-[#161b22] border border-gray-700 text-white rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+                                    <option key={n} value={n}>{n}x</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-xs text-gray-400 block mb-1">
+                                {t('editor.retry_delay', 'Delay Between Retries')}
+                            </label>
+                            <select
+                                value={retryDelay}
+                                onChange={(e) => setRetryDelay(Number(e.target.value))}
+                                className="w-full bg-[#161b22] border border-gray-700 text-white rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                                <option value={500}>0.5s</option>
+                                <option value={1000}>1s</option>
+                                <option value={2000}>2s</option>
+                                <option value={3000}>3s</option>
+                                <option value={5000}>5s</option>
+                                <option value={10000}>10s</option>
+                            </select>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                            {t('editor.retry_desc', 'If the element is not found, retry this many times with the specified delay.')}
+                        </p>
+                    </div>
                 </div>
             </div>
         )}

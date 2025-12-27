@@ -1,6 +1,7 @@
 import { useState, useEffect, type MouseEvent } from 'react';
 import { useParams, Link, useLocation } from 'react-router-dom';
-import { ArrowLeft, ExternalLink, RefreshCw, AlertTriangle, Trash2, Download } from 'lucide-react';
+import { ArrowLeft, ExternalLink, RefreshCw, AlertTriangle, Trash2, Download, Check, X, Sparkles } from 'lucide-react';
+
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as Diff from 'diff';
 import { useToast } from './contexts/ToastContext';
@@ -49,6 +50,8 @@ function MonitorDetails() {
     const [allTags, setAllTags] = useState<string[]>([]);
     const [historyFilter, setHistoryFilter] = useState<'all' | 'changed' | 'unchanged' | 'error'>('all');
     const { authFetch } = useAuth();
+    const [suggestionTestResult, setSuggestionTestResult] = useState<{ loading: boolean; success?: boolean; count?: number; preview?: string; error?: string } | null>(null);
+    const [suggestionActionLoading, setSuggestionActionLoading] = useState<'accept' | 'reject' | null>(null);
 
     const fetchMonitor = async (silent = false) => {
         if (!silent) setLoading(true);
@@ -288,6 +291,83 @@ function MonitorDetails() {
         }
     };
 
+    const handleAcceptSuggestion = async () => {
+        setSuggestionActionLoading('accept');
+        try {
+            const res = await authFetch(`${API_BASE}/monitors/${id}/suggestion/accept`, { method: 'POST' });
+            const data = await res.json().catch(() => ({}));
+            console.log('[Accept Suggestion] Response:', res.status, data);
+            if (res.ok) {
+                showToast(t('monitor_details.toasts.suggestion_accepted', 'Suggestion accepted successfully'), 'success');
+                setSuggestionTestResult(null);
+                await fetchMonitor(true);
+            } else {
+                const errorMsg = data.error || t('monitor_details.toasts.action_failed', 'Failed to perform action');
+                showToast(errorMsg, 'error');
+            }
+        } catch (e: any) {
+            console.error('[Accept Suggestion] Error:', e);
+            showToast(t('monitor_details.toasts.network_error', 'Network error: ') + e.message, 'error');
+        } finally {
+            setSuggestionActionLoading(null);
+        }
+    };
+
+    const handleRejectSuggestion = async () => {
+        setSuggestionActionLoading('reject');
+        try {
+            const res = await authFetch(`${API_BASE}/monitors/${id}/suggestion/reject`, { method: 'POST' });
+            const data = await res.json().catch(() => ({}));
+            console.log('[Reject Suggestion] Response:', res.status, data);
+            if (res.ok) {
+                showToast(t('monitor_details.toasts.suggestion_rejected', 'Suggestion discarded'), 'success');
+                setSuggestionTestResult(null);
+                await fetchMonitor(true);
+            } else {
+                const errorMsg = data.error || t('monitor_details.toasts.action_failed', 'Failed to perform action');
+                showToast(errorMsg, 'error');
+            }
+        } catch (e: any) {
+            console.error('[Reject Suggestion] Error:', e);
+            showToast(t('monitor_details.toasts.network_error', 'Network error: ') + e.message, 'error');
+        } finally {
+            setSuggestionActionLoading(null);
+        }
+    };
+
+    const handleTestSuggestion = async () => {
+        if (!monitor?.suggested_selector || !monitor?.url) return;
+        setSuggestionTestResult({ loading: true });
+        try {
+            const res = await authFetch(`${API_BASE}/api/test-selector`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: monitor.url, selector: monitor.suggested_selector })
+            });
+            const data = await res.json();
+            if (data.success) {
+                setSuggestionTestResult({
+                    loading: false,
+                    success: true,
+                    count: data.count,
+                    preview: data.text
+                });
+            } else {
+                setSuggestionTestResult({
+                    loading: false,
+                    success: false,
+                    error: data.error || 'Selector not found'
+                });
+            }
+        } catch (e) {
+            setSuggestionTestResult({
+                loading: false,
+                success: false,
+                error: e instanceof Error ? e.message : 'Network error'
+            });
+        }
+    };
+
     if (loading) return <div className="p-8 text-center text-gray-500">Loading details...</div>;
     if (!monitor) return <div className="p-8 text-center text-red-500">Monitor not found</div>;
 
@@ -375,6 +455,92 @@ function MonitorDetails() {
                     </div>
                 </div>
             </div>
+
+            {monitor.suggested_selector && (
+                <div className="mb-6 bg-purple-900/20 border border-purple-500/50 rounded-lg p-4 flex items-start gap-4 animate-in fade-in slide-in-from-top-2">
+                    <div className="p-2 bg-purple-500/20 rounded-full text-purple-400">
+                        <Sparkles size={24} />
+                    </div>
+                    <div className="flex-1">
+                        <h3 className="text-purple-300 font-bold text-lg mb-1 flex items-center gap-2">
+                            {t('monitor_details.ai_suggestion_title', 'AI Repair Suggestion')}
+                        </h3>
+                        <p className="text-purple-200/80 text-sm mb-3">
+                            {t('monitor_details.ai_suggestion_msg', 'The current selector appears broken. AI has analyzed the page and suggests a new selector.')}
+                        </p>
+                        <div className="bg-black/40 rounded p-2 font-mono text-sm text-purple-200 border border-purple-500/30 mb-4 break-all">
+                            {monitor.suggested_selector}
+                        </div>
+                        
+                        {/* Test Result */}
+                        {suggestionTestResult && (
+                            <div className={`mb-4 p-3 rounded border ${suggestionTestResult.loading ? 'bg-blue-900/20 border-blue-500/30' : suggestionTestResult.success ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}`}>
+                                {suggestionTestResult.loading ? (
+                                    <div className="flex items-center gap-2 text-blue-300">
+                                        <RefreshCw size={16} className="animate-spin" />
+                                        {t('monitor_details.testing_selector', 'Testing selector...')}
+                                    </div>
+                                ) : suggestionTestResult.success ? (
+                                    <div>
+                                        <div className="flex items-center gap-2 text-green-400 font-medium mb-1">
+                                            <Check size={16} />
+                                            {t('monitor_details.test_success', 'Selector works!')} ({suggestionTestResult.count} {suggestionTestResult.count === 1 ? 'element' : 'elements'})
+                                        </div>
+                                        {suggestionTestResult.preview && (
+                                            <div className="text-sm text-gray-300 mt-2">
+                                                <span className="text-gray-500">{t('monitor_details.preview', 'Preview')}:</span>
+                                                <div className="bg-black/30 rounded p-2 mt-1 font-mono text-xs break-all max-h-20 overflow-y-auto">
+                                                    {suggestionTestResult.preview}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-2 text-red-400">
+                                        <X size={16} />
+                                        {t('monitor_details.test_failed', 'Test failed')}: {suggestionTestResult.error}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        
+                        <div className="flex gap-3 flex-wrap">
+                            <button
+                                onClick={handleTestSuggestion}
+                                disabled={suggestionTestResult?.loading}
+                                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:cursor-not-allowed text-white rounded font-medium flex items-center gap-2 transition-colors"
+                            >
+                                <RefreshCw size={16} className={suggestionTestResult?.loading ? 'animate-spin' : ''} />
+                                {t('monitor_details.test_selector', 'Test Selector')}
+                            </button>
+                            <button
+                                onClick={handleAcceptSuggestion}
+                                disabled={suggestionActionLoading !== null}
+                                className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-purple-800 disabled:cursor-not-allowed text-white rounded font-medium flex items-center gap-2 transition-colors"
+                            >
+                                {suggestionActionLoading === 'accept' ? (
+                                    <RefreshCw size={16} className="animate-spin" />
+                                ) : (
+                                    <Check size={16} />
+                                )}
+                                {suggestionActionLoading === 'accept' ? t('common.saving', 'Saving...') : t('monitor_details.accept_suggestion', 'Approve Fix')}
+                            </button>
+                            <button
+                                onClick={handleRejectSuggestion}
+                                disabled={suggestionActionLoading !== null}
+                                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 disabled:bg-gray-900 disabled:cursor-not-allowed text-gray-300 rounded font-medium flex items-center gap-2 transition-colors border border-gray-700"
+                            >
+                                {suggestionActionLoading === 'reject' ? (
+                                    <RefreshCw size={16} className="animate-spin" />
+                                ) : (
+                                    <X size={16} />
+                                )}
+                                {suggestionActionLoading === 'reject' ? t('common.processing', 'Processing...') : t('monitor_details.reject_suggestion', 'Discard')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className={`${showGraph ? 'lg:col-span-1' : 'lg:col-span-3'} space-y-6`}>

@@ -1,8 +1,9 @@
 import { useState, useEffect, type ChangeEvent } from 'react';
-import { Save, Bell, Mail, Smartphone, Globe, ArrowLeft, Download, Upload, Eye, EyeOff, Brain, Shield, Search } from 'lucide-react';
+import { Save, Bell, Mail, Smartphone, Globe, ArrowLeft, Download, Upload, Eye, EyeOff, Brain, Shield, Search, Sun, Moon, Monitor } from 'lucide-react';
 import { useToast } from './contexts/ToastContext';
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from './contexts/AuthContext';
+import { useTheme } from './contexts/ThemeContext';
 
 interface SettingsData {
     email_enabled: boolean;
@@ -27,6 +28,8 @@ interface SettingsData {
     proxy_auth: string;
     webhook_enabled: boolean;
     webhook_url: string;
+    watchdog_threshold: number;
+    language: string;
 }
 
 import { useTranslation } from 'react-i18next';
@@ -37,6 +40,7 @@ function Settings() {
     const navigate = useNavigate();
     const { showToast } = useToast();
     const { authFetch } = useAuth();
+    const { theme, setTheme } = useTheme();
 
     const [settings, setSettings] = useState<SettingsData>({
         email_enabled: false,
@@ -60,7 +64,9 @@ function Settings() {
         proxy_server: '',
         proxy_auth: '',
         webhook_enabled: false,
-        webhook_url: ''
+        webhook_url: '',
+        watchdog_threshold: 50,
+        language: 'en'
     });
 
     const [showPassword, setShowPassword] = useState(false);
@@ -81,7 +87,13 @@ function Settings() {
                         ai_provider: data.data.ai_provider || 'openai',
                         proxy_enabled: !!data.data.proxy_enabled,
                         webhook_enabled: !!data.data.webhook_enabled,
+                        watchdog_threshold: data.data.watchdog_threshold ?? 50,
+                        language: data.data.language || 'en',
                     });
+                    // Sync i18n with backend language setting
+                    if (data.data.language && data.data.language !== i18n.language) {
+                        i18n.changeLanguage(data.data.language);
+                    }
                 }
             })
             .catch(err => console.error(err));
@@ -246,19 +258,51 @@ function Settings() {
                                 <label className="block text-sm font-medium text-gray-400 mb-1">{t('settings.language')}</label>
                                 <div className="flex gap-4">
                                     <button
-                                        onClick={() => i18n.changeLanguage('en')}
+                                        onClick={() => {
+                                            i18n.changeLanguage('en');
+                                            setSettings(prev => ({ ...prev, language: 'en' }));
+                                        }}
                                         className={`flex-1 px-4 py-2 rounded-lg border transition-colors flex items-center justify-center gap-2 ${i18n.language === 'en' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-[#0d1117] border-gray-700 text-gray-400 hover:border-gray-600'}`}
                                     >
                                         <span className="text-xl">🇺🇸</span> English
                                     </button>
                                     <button
-                                        onClick={() => i18n.changeLanguage('nl')}
+                                        onClick={() => {
+                                            i18n.changeLanguage('nl');
+                                            setSettings(prev => ({ ...prev, language: 'nl' }));
+                                        }}
                                         className={`flex-1 px-4 py-2 rounded-lg border transition-colors flex items-center justify-center gap-2 ${i18n.language === 'nl' ? 'bg-orange-600/20 border-orange-500 text-orange-400' : 'bg-[#0d1117] border-gray-700 text-gray-400 hover:border-gray-600'}`}
                                     >
                                         <span className="text-xl">🇳🇱</span> Nederlands
                                     </button>
                                 </div>
                                 <p className="text-xs text-gray-500 mt-2">{t('settings.language_desc')}</p>
+                            </div>
+                            
+                            {/* Theme Toggle */}
+                            <div className="pt-4 border-t border-gray-800">
+                                <label className="block text-sm font-medium text-gray-400 mb-1">{t('settings.theme', 'Theme')}</label>
+                                <div className="flex gap-4">
+                                    <button
+                                        onClick={() => setTheme('dark')}
+                                        className={`flex-1 px-4 py-2 rounded-lg border transition-colors flex items-center justify-center gap-2 ${theme === 'dark' ? 'bg-gray-600/20 border-gray-500 text-gray-300' : 'bg-[#0d1117] border-gray-700 text-gray-400 hover:border-gray-600'}`}
+                                    >
+                                        <Moon size={18} /> {t('settings.theme_dark', 'Dark')}
+                                    </button>
+                                    <button
+                                        onClick={() => setTheme('light')}
+                                        className={`flex-1 px-4 py-2 rounded-lg border transition-colors flex items-center justify-center gap-2 ${theme === 'light' ? 'bg-yellow-600/20 border-yellow-500 text-yellow-400' : 'bg-[#0d1117] border-gray-700 text-gray-400 hover:border-gray-600'}`}
+                                    >
+                                        <Sun size={18} /> {t('settings.theme_light', 'Light')}
+                                    </button>
+                                    <button
+                                        onClick={() => setTheme('system')}
+                                        className={`flex-1 px-4 py-2 rounded-lg border transition-colors flex items-center justify-center gap-2 ${theme === 'system' ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-[#0d1117] border-gray-700 text-gray-400 hover:border-gray-600'}`}
+                                    >
+                                        <Monitor size={18} /> {t('settings.theme_system', 'System')}
+                                    </button>
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2">{t('settings.theme_desc', 'Choose your preferred appearance.')}</p>
                             </div>
                         </div>
                     </div>
@@ -510,6 +554,57 @@ function Settings() {
                         )}
                     </div>
 
+                    {/* Scheduler Settings */}
+                    <div className="bg-[#161b22] p-6 rounded-lg border border-gray-800 shadow-lg">
+                        <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
+                            <Bell size={20} className="text-yellow-400" /> Scheduler & Watchdog
+                        </h2>
+                        <div className="grid grid-cols-1 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Watchdog Threshold (%)</label>
+                                <div className="flex items-center gap-4">
+                                    <input 
+                                        type="range" 
+                                        name="watchdog_threshold" 
+                                        min="10" 
+                                        max="100" 
+                                        step="10"
+                                        value={settings.watchdog_threshold} 
+                                        onChange={handleChange} 
+                                        className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-yellow-500" 
+                                    />
+                                    <span className="text-white font-mono w-12 text-right">{settings.watchdog_threshold}%</span>
+                                </div>
+                                <p className="text-xs text-gray-500 mt-1">
+                                    If {settings.watchdog_threshold}% or more monitors are in cooldown, the watchdog will automatically reset all cooldowns.
+                                </p>
+                            </div>
+                            <div className="pt-4 border-t border-gray-800">
+                                <label className="block text-sm font-medium text-gray-400 mb-2">Manual Reset</label>
+                                <button 
+                                    onClick={async () => {
+                                        try {
+                                            const res = await authFetch(`${API_BASE}/api/admin/reset-cooldowns`, { method: 'POST' });
+                                            const data = await res.json();
+                                            if (res.ok) {
+                                                showToast('All cooldowns have been reset', 'success');
+                                            } else {
+                                                showToast(data.error || 'Failed to reset cooldowns', 'error');
+                                            }
+                                        } catch (e) {
+                                            showToast('Network error', 'error');
+                                        }
+                                    }}
+                                    className="w-full bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600/30 px-4 py-3 rounded text-sm font-medium transition-colors border border-yellow-600/30 hover:border-yellow-600/50 flex items-center justify-center gap-2"
+                                >
+                                    <Bell size={16} /> Reset All Cooldowns Now
+                                </button>
+                                <p className="text-xs text-gray-500 mt-2">
+                                    Immediately resets all monitor failure counters, allowing stuck monitors to resume checking.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
                     {/* Data Management */}
                     <div className="bg-[#161b22] p-6 rounded-lg border border-gray-800 shadow-lg">
                         <h2 className="text-lg font-semibold text-white mb-4">Data Management</h2>

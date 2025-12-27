@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Users as UsersIcon, Trash2, Shield } from 'lucide-react';
 import { useToast } from './contexts/ToastContext';
+import { useDialog } from './contexts/DialogContext';
 import { useAuth } from './contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -16,6 +17,7 @@ interface UserData {
 function Users() {
     const API_BASE = '';
     const { showToast } = useToast();
+    const { confirm } = useDialog();
     const { authFetch, user } = useAuth();
     const navigate = useNavigate();
     const [users, setUsers] = useState<UserData[]>([]);
@@ -46,8 +48,15 @@ function Users() {
         }
     };
 
-    const handleDeleteUser = async (id: number) => {
-        if (!confirm('Are you sure you want to delete this user?')) return;
+    const handleDeleteUser = async (id: number, email: string) => {
+        const confirmed = await confirm({
+            title: 'Delete User',
+            message: `Are you sure you want to delete "${email}"? This action cannot be undone.`,
+            confirmText: 'Delete',
+            cancelText: 'Cancel',
+            danger: true
+        });
+        if (!confirmed) return;
         try {
             const res = await authFetch(`${API_BASE}/api/admin/users/${id}`, { method: 'DELETE' });
             if (res.ok) {
@@ -151,7 +160,7 @@ function Users() {
                                                             <Shield size={16} />
                                                         </button>
                                                         <button 
-                                                            onClick={() => handleDeleteUser(u.id)}
+                                                            onClick={() => handleDeleteUser(u.id, u.email)}
                                                             className="p-2 bg-red-900/20 text-red-400 border border-red-900/50 rounded-lg hover:bg-red-900/40 transition-colors"
                                                             title="Delete User"
                                                         >

@@ -1,3 +1,214 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Theme Variables */
+:root,
+[data-theme="dark"] {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #21262d;
+  --bg-input: #0d1117;
+  
+  --border-primary: #30363d;
+  --border-secondary: #21262d;
+  
+  --text-primary: #c9d1d9;
+  --text-secondary: #8b949e;
+  --text-muted: #6e7681;
+  --text-inverse: #0d1117;
+  
+  --accent-primary: #238636;
+  --accent-secondary: #1f6feb;
+  --accent-danger: #f85149;
+  --accent-warning: #d29922;
+  --accent-purple: #a855f7;
+  
+  --shadow-color: rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="light"] {
+  /* Softer, warmer background palette - not pure white */
+  --bg-primary: #fafbfc;
+  --bg-secondary: #f4f5f7;
+  --bg-tertiary: #e8eaed;
+  --bg-input: #ffffff;
+  
+  /* Subtle borders */
+  --border-primary: #e1e4e8;
+  --border-secondary: #d5d9de;
+  
+  /* Refined text colors with good contrast */
+  --text-primary: #24292f;
+  --text-secondary: #57606a;
+  --text-muted: #8b949e;
+  --text-inverse: #ffffff;
+  
+  /* Vibrant but not harsh accent colors */
+  --accent-primary: #2da44e;
+  --accent-secondary: #0969da;
+  --accent-danger: #d1242f;
+  --accent-warning: #bf8700;
+  --accent-purple: #8250df;
+  
+  /* Better shadows for depth */
+  --shadow-color: rgba(27, 31, 35, 0.08);
+}
+
+/* Base styles using theme variables */
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* ==========================================
+   LIGHT THEME OVERRIDES
+   Override hardcoded colors when in light mode
+   ========================================== */
+
+[data-theme="light"] {
+  /* Background overrides */
+  .bg-\[\#0d1117\], .bg-\[\#0D1117\] {
+    background-color: var(--bg-primary) !important;
+  }
+  .bg-\[\#161b22\], .bg-\[\#161B22\] {
+    background-color: var(--bg-secondary) !important;
+  }
+  .bg-\[\#21262d\], .bg-\[\#21262D\] {
+    background-color: var(--bg-tertiary) !important;
+  }
+  .bg-\[\#1c2128\] {
+    background-color: #f3f4f6 !important;
+  }
+  
+  /* Border overrides */
+  .border-gray-800 {
+    border-color: var(--border-primary) !important;
+  }
+  .border-gray-700 {
+    border-color: var(--border-secondary) !important;
+  }
+  .border-\[\#30363d\] {
+    border-color: var(--border-primary) !important;
+  }
+  
+  /* Text color overrides */
+  .text-white {
+    color: var(--text-primary) !important;
+  }
+  .text-gray-400 {
+    color: var(--text-secondary) !important;
+  }
+  .text-gray-500 {
+    color: var(--text-muted) !important;
+  }
+  .text-gray-300 {
+    color: var(--text-secondary) !important;
+  }
+  .text-\[\#c9d1d9\] {
+    color: var(--text-primary) !important;
+  }
+  .text-\[\#8b949e\] {
+    color: var(--text-secondary) !important;
+  }
+  
+  /* Hover state overrides */
+  .hover\:bg-gray-800:hover {
+    background-color: #e8eaed !important;
+  }
+  .hover\:bg-gray-700:hover {
+    background-color: #e8eaed !important;
+  }
+  .hover\:bg-\[\#1c2128\]:hover {
+    background-color: #eef0f2 !important;
+  }
+  .hover\:bg-gray-800\/50:hover {
+    background-color: rgba(232, 234, 237, 0.7) !important;
+  }
+  .hover\:text-white:hover {
+    color: var(--text-primary) !important;
+  }
+  .hover\:text-gray-200:hover, .hover\:text-gray-300:hover {
+    color: var(--text-primary) !important;
+  }
+  .hover\:border-gray-600:hover {
+    border-color: var(--border-secondary) !important;
+  }
+  
+  /* Timeline dots - use light background for border instead of dark */
+  .border-\[\#161b22\] {
+    border-color: var(--bg-secondary) !important;
+  }
+  .border-\[\#0d1117\] {
+    border-color: var(--bg-primary) !important;
+  }
+  
+  /* Specific component fixes */
+  .bg-gray-800 {
+    background-color: #eef0f2 !important;
+  }
+  .bg-gray-700 {
+    background-color: #e8eaed !important;
+  }
+  .bg-gray-900 {
+    background-color: #e4e6e9 !important;
+  }
+  .bg-\[\#1c2128\] {
+    background-color: #f0f2f4 !important;
+  }
+  
+  /* Focus rings */
+  .focus\:ring-gray-700:focus {
+    --tw-ring-color: var(--border-primary) !important;
+  }
+  
+  /* Placeholder text */
+  .placeholder-gray-500::placeholder {
+    color: var(--text-muted) !important;
+  }
+  
+  /* Card shadows for depth - makes light theme feel more polished */
+  .rounded-lg {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+  }
+  
+  /* Remove heavy shadows from small rounded elements (dots) */
+  .rounded-full {
+    box-shadow: none !important;
+  }
+  
+  /* Better visual hierarchy with subtle shadows */
+  header, .sticky {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  }
+  
+  /* Code blocks and value boxes - white with subtle border like modern apps */
+  .bg-gray-900\/50, .bg-gray-900\/30 {
+    background-color: #ffffff !important;
+    border-color: #e1e4e8 !important;
+  }
+  .bg-black {
+    background-color: #fafbfc !important;
+  }
+  
+  /* Font mono elements in light mode need darker text */
+  .font-mono {
+    color: #24292f !important;
+  }
+  
+  /* Preserve error glow in light mode */
+  .bg-red-500\/10, .bg-red-500\/20 {
+    background-color: rgba(220, 38, 38, 0.12) !important;
+  }
+  .shadow-\[0_0_20px_rgba\(239\,68\,68\,0\.4\)\] {
+    box-shadow: 0 0 20px rgba(220, 38, 38, 0.25) !important;
+  }
+  .border-red-500\/50 {
+    border-color: rgba(220, 38, 38, 0.4) !important;
+  }
+  
+  /* Keep glow effects visible */
+  .blur-xl {
+    filter: blur(24px);
+  }
+}

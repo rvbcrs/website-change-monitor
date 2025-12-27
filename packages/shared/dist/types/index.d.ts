@@ -39,6 +39,7 @@ export interface Monitor {
     created_at?: string;
     history?: HistoryRecord[];
     unread_count?: number;
+    suggested_selector?: string;
 }
 /**
  * Standard API response wrapper

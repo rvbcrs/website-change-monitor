@@ -1,12 +1,47 @@
 import { useTranslation } from 'react-i18next';
 import StatsOverview, { type StatsOverviewRef } from './components/StatsOverview'
-import { useState, useEffect, useRef, type MouseEvent } from 'react'
+import { useState, useEffect, useRef, useCallback, type MouseEvent, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Trash2, Edit, Plus, ExternalLink, Pause, Play, RefreshCw, Layout, Copy, Download, Search, X } from 'lucide-react'
+import { Trash2, Edit, Plus, ExternalLink, Pause, Play, RefreshCw, Layout, Copy, Download, Search, X, GripVertical } from 'lucide-react'
 import { useToast } from './contexts/ToastContext'
 import { useDialog } from './contexts/DialogContext'
 import { useAuth } from './contexts/AuthContext'
 import { timeAgo, formatDate, type HistoryRecord } from '@deltawatch/shared'
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+
+// Sortable wrapper component for drag & drop
+function SortableItem({ id, children }: { id: number; children: React.ReactNode }) {
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+        isDragging,
+    } = useSortable({ id });
+
+    const style: CSSProperties = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+        position: 'relative' as const,
+    };
+
+    return (
+        <div ref={setNodeRef} style={style} className="group/sortable">
+            <div
+                {...attributes}
+                {...listeners}
+                className="absolute left-0 top-0 bottom-0 w-8 flex items-center justify-center cursor-grab active:cursor-grabbing opacity-0 group-hover/sortable:opacity-100 transition-opacity z-10"
+            >
+                <GripVertical size={16} className="text-gray-500" />
+            </div>
+            {children}
+        </div>
+    );
+}
 
 interface Monitor {
     id: number;
@@ -20,6 +55,8 @@ interface Monitor {
     last_check?: string;
     last_screenshot?: string;
     tags?: string;
+    sort_order?: number;
+    group_id?: number;
     history?: Array<HistoryRecord & { http_status: number | null }>;
     unread_count?: number;
 }
@@ -45,6 +82,43 @@ const Dashboard = () => {
   const { authFetch } = useAuth()
   const API_BASE = '';
   const statsRef = useRef<StatsOverviewRef>(null);
+  
+  // Drag & Drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleDragEnd = useCallback(async (event: DragEndEvent) => {
+    const { active, over } = event;
+    
+    if (over && active.id !== over.id) {
+      const oldIndex = monitors.findIndex(m => m.id === active.id);
+      const newIndex = monitors.findIndex(m => m.id === over.id);
+      
+      if (oldIndex !== -1 && newIndex !== -1) {
+        const newOrder = arrayMove(monitors, oldIndex, newIndex);
+        setMonitors(newOrder);
+        
+        // Persist to backend
+        try {
+          const items = newOrder.map((m, idx) => ({ 
+            id: m.id, 
+            sort_order: idx,
+            group_id: m.group_id ?? null
+          }));
+          await authFetch(`${API_BASE}/monitors/reorder`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items })
+          });
+        } catch (e) {
+          console.error('Failed to persist order:', e);
+          showToast('Failed to save order', 'error');
+        }
+      }
+    }
+  }, [monitors, authFetch, showToast]);
 
   useEffect(() => {
     fetchMonitors()
@@ -254,10 +328,10 @@ const Dashboard = () => {
   console.log(`[Dashboard] Render. Filter: ${statusFilter}, Monitors: ${monitors.length}, Filtered: ${filteredMonitors.length}`);
 
     const renderMonitorCard = (monitor: Monitor) => (
+        <SortableItem key={monitor.id} id={monitor.id}>
         <Link 
             to={`/monitor/${monitor.id}`}
-            key={monitor.id} 
-            className="bg-[#161b22] border border-gray-800 hover:border-gray-600 rounded-lg p-4 flex flex-col md:flex-row md:items-center justify-between transition-colors group block mb-2"
+            className="bg-[#161b22] border border-gray-800 hover:border-gray-600 rounded-lg p-4 pl-10 flex flex-col md:flex-row md:items-center justify-between transition-colors group block mb-2"
         >
             <div className="flex items-start gap-4 flex-1 min-w-0 w-full">
                 {monitor.type === 'visual' && (
@@ -405,6 +479,7 @@ const Dashboard = () => {
                  </div>
             </div>
         </Link>
+        </SortableItem>
     );
 
     // Calculate current error count for StatsOverview
@@ -524,6 +599,7 @@ const Dashboard = () => {
         {loading ? (
              <div className="text-center py-10 text-gray-500">{t('dashboard.loading')}</div>
         ) : (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <div className={`transition-all duration-300 ease-in-out space-y-2`}>
                 {filteredMonitors.length === 0 && (
                     <div className="text-center py-20 bg-[#161b22] rounded-lg border border-dashed border-gray-700">
@@ -579,10 +655,16 @@ const Dashboard = () => {
                             </>
                         );
                     } else {
-                        return filteredMonitors.map(renderMonitorCard);
+                        // Sortable list when not grouped
+                        return (
+                            <SortableContext items={filteredMonitors.map(m => m.id)} strategy={verticalListSortingStrategy}>
+                                {filteredMonitors.map(renderMonitorCard)}
+                            </SortableContext>
+                        );
                     }
                 })()}
             </div>
+            </DndContext>
         )}
     </div>
   )

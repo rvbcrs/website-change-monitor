@@ -1,5 +1,5 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { DarkTheme, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, ThemeProvider as NavigationThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -8,6 +8,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
 import { AuthProvider } from '@/contexts/AuthContext';
+import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 
 export {
     // Catch any errors thrown by the Layout component.
@@ -23,7 +24,7 @@ export const unstable_settings = {
 SplashScreen.preventAutoHideAsync();
 
 // Custom dark theme matching DeltaWatch colors
-const DeltaWatchTheme = {
+const DeltaWatchDarkTheme = {
   ...DarkTheme,
   colors: {
     ...DarkTheme.colors,
@@ -33,6 +34,19 @@ const DeltaWatchTheme = {
     text: '#c9d1d9',
     border: '#30363d',
     notification: '#238636',
+  },
+};
+
+const DeltaWatchLightTheme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    primary: '#1a7f37',
+    background: '#ffffff',
+    card: '#f6f8fa',
+    text: '#1f2328',
+    border: '#d0d7de',
+    notification: '#1a7f37',
   },
 };
 
@@ -57,14 +71,21 @@ export default function RootLayout() {
     return null;
   }
 
-  return <RootLayoutNav />;
+  return (
+    <ThemeProvider>
+      <RootLayoutNav />
+    </ThemeProvider>
+  );
 }
 
 function RootLayoutNav() {
+  const { resolvedTheme, colors } = useTheme();
+  const navigationTheme = resolvedTheme === 'dark' ? DeltaWatchDarkTheme : DeltaWatchLightTheme;
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>
-        <ThemeProvider value={DeltaWatchTheme}>
+        <NavigationThemeProvider value={navigationTheme}>
           <Stack>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen 
@@ -72,8 +93,8 @@ function RootLayoutNav() {
               options={{ 
                 headerShown: true,
                 title: 'Details',
-                headerStyle: { backgroundColor: '#161b22' },
-                headerTintColor: '#fff',
+                headerStyle: { backgroundColor: colors.backgroundSecondary },
+                headerTintColor: colors.text,
                 headerBackTitle: 'Back',
               }} 
             />
@@ -86,7 +107,7 @@ function RootLayoutNav() {
             />
             <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
           </Stack>
-        </ThemeProvider>
+        </NavigationThemeProvider>
       </AuthProvider>
     </GestureHandlerRootView>
   );

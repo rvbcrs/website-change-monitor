@@ -88,29 +88,17 @@ const StatsOverview = forwardRef<StatsOverviewRef, StatsOverviewProps>(function 
 
     return (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            {/* Total Monitors - Click to show Active */}
-            <div 
-                onClick={() => {
-                    console.log('Filter clicked: active');
-                    onFilterClick?.('active');
-                }}
-                className={`p-4 rounded-lg border flex flex-col justify-between h-24 relative overflow-hidden group cursor-pointer select-none transition-all ${
-                    activeFilter === 'active' 
-                        ? 'bg-blue-500/20 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.3)]' 
-                        : 'bg-[#161b22] border-gray-800 hover:border-gray-600 hover:bg-[#1c2128]'
-                }`}
-            >
-                <div className="flex justify-between items-start z-10 relative pointer-events-none">
-                    <div className={`text-xs uppercase font-bold tracking-wider ${activeFilter === 'active' ? 'text-white' : 'text-gray-400'}`}>
-                        {activeFilter === 'active' ? '✓ ' + t('dashboard.filter_active') : t('stats.active')}
-                    </div>
+            {/* Total Monitors - Not clickable */}
+            <div className="bg-[#161b22] p-4 rounded-lg border border-gray-800 flex flex-col justify-between h-24 relative overflow-hidden group">
+                <div className="flex justify-between items-start z-10 relative">
+                    <div className="text-gray-400 text-xs uppercase font-bold tracking-wider">{t('stats.active')}</div>
                     <Activity size={16} className="text-blue-500 opacity-75" />
                 </div>
-                <div className="flex items-end gap-2 z-10 relative pointer-events-none">
+                <div className="flex items-end gap-2 z-10 relative">
                     <div className="text-2xl font-bold text-white">{stats.active_monitors}</div>
                     <div className="text-xs text-gray-500 mb-1">/ {stats.total_monitors} Total</div>
                 </div>
-                <div className="absolute -right-4 -bottom-4 bg-blue-500/10 w-24 h-24 rounded-full blur-xl group-hover:bg-blue-500/20 transition-colors pointer-events-none"></div>
+                <div className="absolute -right-4 -bottom-4 bg-blue-500/10 w-24 h-24 rounded-full blur-xl group-hover:bg-blue-500/20 transition-colors"></div>
             </div>
 
             {/* 24h Checks */}
@@ -165,7 +153,7 @@ const StatsOverview = forwardRef<StatsOverviewRef, StatsOverviewProps>(function 
                     </div>
                     <div className="text-xs text-gray-500 mb-1">Global Errors</div>
                 </div>
-                 <div className={`absolute -right-4 -bottom-4 w-24 h-24 rounded-full blur-xl transition-colors pointer-events-none ${(currentErrorCount !== undefined ? currentErrorCount : stats.errors_24h) === 0 ? "bg-gray-500/5" : "bg-red-500/10 group-hover:bg-red-500/20"}`}></div>
+                 <div className="absolute -right-4 -bottom-4 w-24 h-24 rounded-full blur-xl transition-colors pointer-events-none bg-red-500/10 group-hover:bg-red-500/20"></div>
             </div>
         </div>
     );

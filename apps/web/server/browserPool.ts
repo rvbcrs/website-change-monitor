@@ -9,6 +9,7 @@ chromium.use(stealth());
 
 interface LaunchOptions {
     headless: boolean;
+    args?: string[];
     proxy?: {
         server: string;
         username?: string;
@@ -42,7 +43,19 @@ async function getLaunchOptions(): Promise<LaunchOptions> {
         )
     );
     
-    const launchOptions: LaunchOptions = { headless: true };
+    const launchOptions: LaunchOptions = { 
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+            '--enable-unsafe-swiftshader' // Fix for WebGL warning (crbug.com/242999)
+        ]
+    };
     
     if (settings.proxy_enabled && settings.proxy_server) {
         launchOptions.proxy = { server: settings.proxy_server };
@@ -72,11 +85,18 @@ async function createBrowser(): Promise<PooledBrowser> {
     };
     
     // Handle unexpected browser close
-    browser.on('disconnected', () => {
+    browser.on('disconnected', async () => {
         const index = browserPool.findIndex(pb => pb.browser === browser);
         if (index !== -1) {
             browserPool.splice(index, 1);
-            logWarn('browser', 'Browser instance disconnected unexpectedly, removed from pool');
+            consecutiveErrors++;
+            logWarn('browser', `Browser instance disconnected unexpectedly, removed from pool (errors: ${consecutiveErrors})`);
+            
+            // Auto-reset pool if too many disconnects
+            if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                logWarn('browser', `Too many browser disconnects (${consecutiveErrors}), forcing pool reset`);
+                await forceResetPool();
+            }
         }
     });
     

@@ -40,6 +40,23 @@ const getPublicPath = (...subpaths: string[]): string => {
     return path.join(__dirname, '..', 'public', ...subpaths);
 };
 
+// Helper to get user label for logging: "email (ID: X)"
+const getUserLabel = (userId: number | undefined): Promise<string> => {
+    return new Promise((resolve) => {
+        if (!userId) {
+            resolve('unknown');
+            return;
+        }
+        db.get('SELECT email FROM users WHERE id = ?', [userId], (err: Error | null, row: any) => {
+            if (err || !row) {
+                resolve(`User ${userId}`);
+            } else {
+                resolve(`${row.email} (ID: ${userId})`);
+            }
+        });
+    });
+};
+
 // Rate Limiting
 import rateLimit from 'express-rate-limit';
 
@@ -330,9 +347,10 @@ setInterval(async () => {
 }, 60000);
 
 // Analytics Endpoint
-app.get('/api/stats', auth.authenticateToken, (req: AuthRequest, res: Response) => {
-    console.log('[API] Stats requested by user:', req.user?.userId);
+app.get('/api/stats', auth.authenticateToken, async (req: AuthRequest, res: Response) => {
     const userId = req.user?.userId;
+    const userLabel = await getUserLabel(userId);
+    console.log(`[API] Stats requested by ${userLabel}`);
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
     const queries = {
@@ -956,14 +974,120 @@ app.get('/monitors', auth.authenticateToken, (req: AuthRequest, res: Response) =
     });
 });
 
+// ==================== GROUPS API ====================
+
+// Get all groups for user
+app.get('/groups', auth.authenticateToken, (req: AuthRequest, res: Response) => {
+    const userId = req.user?.userId;
+    db.all("SELECT * FROM groups WHERE user_id = ? ORDER BY sort_order ASC, name ASC", [userId], (err: Error | null, rows: any[]) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        res.json({ message: 'success', data: rows || [] });
+    });
+});
+
+// Create a group
+app.post('/groups', auth.authenticateToken, (req: AuthRequest, res: Response) => {
+    const { name, color, icon } = req.body;
+    const userId = req.user?.userId;
+
+    if (!name) {
+        return res.status(400).json({ error: 'Name is required' });
+    }
+
+    db.run(
+        `INSERT INTO groups (user_id, name, color, icon) VALUES (?, ?, ?, ?)`,
+        [userId, name, color || '#6366f1', icon || 'folder'],
+        function (this: { lastID: number }, err: Error | null) {
+            if (err) {
+                res.status(500).json({ error: err.message });
+                return;
+            }
+            res.json({ message: 'success', data: { id: this.lastID, name, color, icon } });
+        }
+    );
+});
+
+// Update a group
+app.put('/groups/:id', auth.authenticateToken, (req: AuthRequest, res: Response) => {
+    const { name, color, icon, sort_order } = req.body;
+    const userId = req.user?.userId;
+    const groupId = req.params.id;
+
+    db.run(
+        `UPDATE groups SET name = COALESCE(?, name), color = COALESCE(?, color), icon = COALESCE(?, icon), sort_order = COALESCE(?, sort_order) WHERE id = ? AND user_id = ?`,
+        [name, color, icon, sort_order, groupId, userId],
+        function (err: Error | null) {
+            if (err) {
+                res.status(500).json({ error: err.message });
+                return;
+            }
+            res.json({ message: 'Group updated' });
+        }
+    );
+});
+
+// Delete a group
+app.delete('/groups/:id', auth.authenticateToken, (req: AuthRequest, res: Response) => {
+    const userId = req.user?.userId;
+    const groupId = req.params.id;
+
+    // First, unassign all monitors from this group
+    db.run("UPDATE monitors SET group_id = NULL WHERE group_id = ? AND user_id = ?", [groupId, userId], (err) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+            return;
+        }
+        // Then delete the group
+        db.run("DELETE FROM groups WHERE id = ? AND user_id = ?", [groupId, userId], function (err: Error | null) {
+            if (err) {
+                res.status(500).json({ error: err.message });
+                return;
+            }
+            res.json({ message: 'Group deleted' });
+        });
+    });
+});
+
+// Reorder monitors (drag & drop)
+app.patch('/monitors/reorder', auth.authenticateToken, (req: AuthRequest, res: Response) => {
+    const { items } = req.body; // Array of { id, sort_order, group_id? }
+    const userId = req.user?.userId;
+
+    if (!Array.isArray(items)) {
+        return res.status(400).json({ error: 'Items array is required' });
+    }
+
+    const stmt = db.prepare("UPDATE monitors SET sort_order = ?, group_id = ? WHERE id = ? AND user_id = ?");
+    
+    let errors = 0;
+    items.forEach((item: { id: number; sort_order: number; group_id?: number | null }) => {
+        stmt.run(item.sort_order, item.group_id ?? null, item.id, userId, (err: Error | null) => {
+            if (err) errors++;
+        });
+    });
+    
+    stmt.finalize((err) => {
+        if (err || errors > 0) {
+            res.status(500).json({ error: 'Some items failed to update' });
+        } else {
+            res.json({ message: 'Order updated' });
+        }
+    });
+});
+
+// ==================== MONITORS API ====================
+
 // Add a new monitor
 app.post('/monitors', auth.authenticateToken, (req: AuthRequest, res: Response) => {
-    const { url, selector, selector_text, interval, type, name, notify_config, ai_prompt, tags, keywords, ai_only_visual } = req.body;
+    const { url, selector, selector_text, interval, type, name, notify_config, ai_prompt, tags, keywords, ai_only_visual, group_id } = req.body;
     const userId = req.user?.userId;
 
     db.run(
-        `INSERT INTO monitors (user_id, url, selector, selector_text, interval, type, name, notify_config, ai_prompt, tags, keywords, ai_only_visual) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [userId, url, selector, selector_text || '', interval || '30m', type || 'text', name, JSON.stringify(notify_config), ai_prompt, JSON.stringify(tags), JSON.stringify(keywords), ai_only_visual ? 1 : 0],
+        `INSERT INTO monitors (user_id, url, selector, selector_text, interval, type, name, notify_config, ai_prompt, tags, keywords, ai_only_visual, group_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [userId, url, selector, selector_text || '', interval || '30m', type || 'text', name, JSON.stringify(notify_config), ai_prompt, JSON.stringify(tags), JSON.stringify(keywords), ai_only_visual ? 1 : 0, group_id || null],
         function (this: { lastID: number }, err: Error | null) {
             if (err) {
                 res.status(500).json({ error: err.message });
@@ -979,10 +1103,10 @@ app.post('/monitors', auth.authenticateToken, (req: AuthRequest, res: Response) 
 
 // Update a monitor
 app.put('/monitors/:id', auth.authenticateToken, (req: AuthRequest, res: Response) => {
-    const { url, selector, selector_text, interval, type, name, active, notify_config, ai_prompt, scenario_config, tags, keywords, ai_only_visual } = req.body;
+    const { url, selector, selector_text, interval, type, name, active, notify_config, ai_prompt, scenario_config, tags, keywords, ai_only_visual, retry_count, retry_delay } = req.body;
     db.run(
-        `UPDATE monitors SET url = COALESCE(?, url), selector = COALESCE(?, selector), selector_text = COALESCE(?, selector_text), interval = COALESCE(?, interval), type = COALESCE(?, type), name = COALESCE(?, name), active = COALESCE(?, active), notify_config = COALESCE(?, notify_config), ai_prompt = COALESCE(?, ai_prompt), scenario_config = COALESCE(?, scenario_config), tags = COALESCE(?, tags), keywords = COALESCE(?, keywords), ai_only_visual = COALESCE(?, ai_only_visual) WHERE id = ? AND user_id = ?`,
-        [url, selector, selector_text, interval, type, name, active, notify_config ? JSON.stringify(notify_config) : null, ai_prompt, scenario_config, tags ? JSON.stringify(tags) : null, keywords ? JSON.stringify(keywords) : null, ai_only_visual, req.params.id, req.user?.userId],
+        `UPDATE monitors SET url = COALESCE(?, url), selector = COALESCE(?, selector), selector_text = COALESCE(?, selector_text), interval = COALESCE(?, interval), type = COALESCE(?, type), name = COALESCE(?, name), active = COALESCE(?, active), notify_config = COALESCE(?, notify_config), ai_prompt = COALESCE(?, ai_prompt), scenario_config = COALESCE(?, scenario_config), tags = COALESCE(?, tags), keywords = COALESCE(?, keywords), ai_only_visual = COALESCE(?, ai_only_visual), retry_count = COALESCE(?, retry_count), retry_delay = COALESCE(?, retry_delay) WHERE id = ? AND user_id = ?`,
+        [url, selector, selector_text, interval, type, name, active, notify_config ? JSON.stringify(notify_config) : null, ai_prompt, scenario_config, tags ? JSON.stringify(tags) : null, keywords ? JSON.stringify(keywords) : null, ai_only_visual, retry_count, retry_delay, req.params.id, req.user?.userId],
         function (err: Error | null) {
             if (err) {
                 res.status(500).json({ error: err.message });
@@ -991,6 +1115,162 @@ app.put('/monitors/:id', auth.authenticateToken, (req: AuthRequest, res: Respons
             res.json({ message: "Monitor updated" });
         }
     );
+});
+
+// Accept Suggested Selector
+app.post('/monitors/:id/suggestion/accept', auth.authenticateToken, async (req: AuthRequest, res: Response) => {
+    const userId = req.user?.userId;
+    const monitorId = req.params.id;
+    const userLabel = await getUserLabel(userId);
+    console.log(`[Suggestion Accept] ${userLabel} accepting suggestion for monitor ${monitorId}`);
+
+    db.get('SELECT suggested_selector FROM monitors WHERE id = ? AND user_id = ?', [monitorId, userId], (err: Error | null, row: any) => {
+        if (err) {
+            console.error('[Suggestion Accept] DB Error:', err.message);
+            return res.status(500).json({ error: 'Database error', details: err.message });
+        }
+        if (!row) {
+            console.warn(`[Suggestion Accept] Monitor ${monitorId} not found for ${userLabel}`);
+            return res.status(404).json({ error: 'Monitor not found or access denied' });
+        }
+        if (!row.suggested_selector) {
+            console.warn(`[Suggestion Accept] No suggestion for monitor ${monitorId}`);
+            return res.status(400).json({ error: 'No suggestion to accept' });
+        }
+
+        console.log(`[Suggestion Accept] Applying selector: ${row.suggested_selector}`);
+        db.run(
+            `UPDATE monitors SET selector = suggested_selector, suggested_selector = NULL, last_healed = ? WHERE id = ?`,
+            [new Date().toISOString(), monitorId],
+            (updateErr) => {
+                if (updateErr) {
+                    console.error('[Suggestion Accept] Update Error:', updateErr.message);
+                    return res.status(500).json({ error: 'Update failed', details: updateErr.message });
+                }
+                console.log(`[Suggestion Accept] Success for monitor ${monitorId}`);
+                res.json({ message: 'Suggestion accepted', success: true });
+            }
+        );
+    });
+});
+
+// Reject Suggested Selector
+app.post('/monitors/:id/suggestion/reject', auth.authenticateToken, (req: AuthRequest, res: Response) => {
+    const userId = req.user?.userId;
+    const monitorId = req.params.id;
+
+    db.run(
+        `UPDATE monitors SET suggested_selector = NULL WHERE id = ? AND user_id = ?`,
+        [monitorId, userId],
+        (updateErr) => {
+            if (updateErr) return res.status(500).send(updateErr.message);
+            res.json({ message: 'Suggestion rejected' });
+        }
+    );
+});
+
+// Admin: Reset all cooldowns
+app.post('/api/admin/reset-cooldowns', auth.authenticateToken, (req: AuthRequest, res: Response) => {
+    const userId = req.user?.userId;
+    
+    // Check if user is admin and get their email
+    db.get('SELECT role, email FROM users WHERE id = ?', [userId], (err: Error | null, user: any) => {
+        if (err || !user) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        if (user.role !== 'admin') {
+            return res.status(403).json({ error: 'Admin access required' });
+        }
+        
+        // Reset all cooldowns
+        db.run('UPDATE monitors SET consecutive_failures = 0', [], (updateErr: Error | null) => {
+            if (updateErr) {
+                console.error('[Admin] Reset cooldowns failed:', updateErr.message);
+                return res.status(500).json({ error: 'Failed to reset cooldowns' });
+            }
+            
+            console.log(`[Admin] ${user.email} (ID: ${userId}) reset all cooldowns`);
+            res.json({ success: true, message: 'All cooldowns have been reset' });
+        });
+    });
+});
+
+// Test a selector against a URL
+app.post('/api/test-selector', auth.authenticateToken, async (req: AuthRequest, res: Response) => {
+    const { url, selector } = req.body;
+    
+    if (!url || !selector) {
+        return res.status(400).json({ success: false, error: 'URL and selector are required' });
+    }
+
+    let release: (() => Promise<void>) | null = null;
+    let page = null;
+    try {
+        const { acquireBrowser } = await import('./browserPool');
+        const browser = await acquireBrowser();
+        release = browser.release;
+        page = await browser.context.newPage();
+        
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await page.waitForTimeout(1000);
+        
+        // Try to dismiss cookie banners first
+        try {
+            const consentFrame = page.frameLocator('iframe[title="SP Consent Message"], iframe[id^="sp_message_iframe_"]');
+            const acceptButton = consentFrame.locator('button:has-text("Accepteren"), button:has-text("Accept"), button:has-text("Akkoord")');
+            await acceptButton.first().click({ timeout: 2000 });
+            await page.waitForTimeout(500);
+        } catch (e) {
+            // No consent iframe, try generic buttons
+            const cookieSelectors = [
+                'button[id*="accept"]',
+                'button:has-text("Accepteren")',
+                'button:has-text("Accept")',
+                '#gdpr-consent-accept-button',
+            ];
+            for (const cookieSelector of cookieSelectors) {
+                try {
+                    const button = await page.$(cookieSelector);
+                    if (button) {
+                        await button.click();
+                        await page.waitForTimeout(500);
+                        break;
+                    }
+                } catch (err) { /* ignore */ }
+            }
+        }
+        
+        // Test the selector
+        const elements = await page.$$(selector);
+        const count = elements.length;
+        
+        if (count === 0) {
+            await page.close();
+            if (release) await release();
+            return res.json({ success: false, error: 'No elements match this selector' });
+        }
+        
+        // Get text content from first element
+        const text = await elements[0].textContent() || '';
+        const cleanedText = text.trim().substring(0, 500); // Limit preview length
+        
+        await page.close();
+        if (release) await release();
+        
+        res.json({ 
+            success: true, 
+            count, 
+            text: cleanedText 
+        });
+        
+    } catch (e: any) {
+        console.error('[test-selector] Error:', e.message);
+        try {
+            if (page) await page.close();
+            if (release) await release();
+        } catch (cleanupErr) { /* ignore */ }
+        res.status(500).json({ success: false, error: e.message });
+    }
 });
 
 // Delete a monitor (Protected)

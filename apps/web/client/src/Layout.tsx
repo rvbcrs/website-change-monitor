@@ -33,10 +33,10 @@ function Layout({ children }: LayoutProps) {
   ];
 
   return (
-    <div className="flex flex-col min-h-screen bg-[#0d1117] text-white font-sans">
+    <div className="flex flex-col min-h-screen bg-theme-primary text-theme-text-primary font-sans">
       
       {/* Top Header Bar */}
-      <header className="h-16 border-b border-gray-800 flex items-center gap-4 px-4 bg-[#161b22] sticky top-0 z-40 shrink-0">
+      <header className="h-16 border-b border-theme-border-primary flex items-center gap-4 px-4 bg-theme-secondary sticky top-0 z-40 shrink-0">
         {/* Hamburger Menu Button */}
         <button 
           onClick={() => setIsSidebarOpen(true)}
@@ -64,12 +64,12 @@ function Layout({ children }: LayoutProps) {
       {/* Sliding Sidebar Drawer */}
       <div className={`
         fixed inset-y-0 left-0 z-50 
-        w-72 bg-[#161b22] border-r border-gray-800 flex flex-col 
+        w-72 bg-theme-secondary border-r border-theme-border-primary flex flex-col 
         transform transition-transform duration-300 ease-in-out shadow-2xl
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
       `}>
         {/* Sidebar Header */}
-        <div className="h-16 flex items-center justify-between px-4 border-b border-gray-800">
+        <div className="h-16 flex items-center justify-between px-4 border-b border-theme-border-primary">
           <span className="font-semibold text-lg">Menu</span>
           <button 
             onClick={() => setIsSidebarOpen(false)} 
@@ -81,7 +81,7 @@ function Layout({ children }: LayoutProps) {
 
         {/* User Info (if logged in) */}
         {user && (
-            <div className="px-4 py-4 border-b border-gray-800 flex items-center gap-3">
+            <div className="px-4 py-4 border-b border-theme-border-primary flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-blue-900/50 flex items-center justify-center text-blue-400">
                     <User size={16} />
                 </div>
@@ -111,7 +111,7 @@ function Layout({ children }: LayoutProps) {
         </nav>
 
         {/* Footer */}
-        <div className="p-4 border-t border-gray-800 space-y-4">
+        <div className="p-4 border-t border-theme-border-primary space-y-4">
             {user ? (
                  <button 
                     onClick={logout}
@@ -141,13 +141,13 @@ function Layout({ children }: LayoutProps) {
         </div>
         
         {/* Global Footer */}
-        <footer className="mt-8 pt-6 border-t border-gray-800 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-gray-500">
+        <footer className="mt-8 pt-6 border-t border-theme-border-primary flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-theme-text-muted">
             <div className="flex items-center gap-2">
                 <span>&copy; {new Date().getFullYear()} Interpreter Software B.V.</span>
             </div>
             
             <div className="flex items-center gap-4">
-                 <div className="flex bg-[#161b22] border border-gray-800 rounded-md p-1">
+                 <div className="flex bg-theme-secondary border border-theme-border-primary rounded-md p-1">
                     <button 
                         onClick={() => i18n.changeLanguage('en')}
                         className={`px-2 py-1 rounded transition-colors ${i18n.language === 'en' ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400 hover:text-gray-200'}`}

@@ -25,9 +25,13 @@ interface MonitorDetail {
   selector: string;
   type: 'text' | 'visual';
   interval: string;
+  active: boolean;
   last_check?: string;
   last_value?: string;
   tags?: string;
+  retry_count?: number;
+  retry_delay?: number;
+  group_id?: number;
   history: HistoryRecord[];
 }
 
@@ -126,6 +130,45 @@ export default function MonitorDetailScreen() {
     if (monitor?.url) {
       Linking.openURL(monitor.url);
     }
+  };
+
+  const handleToggleActive = async () => {
+    if (!monitor) return;
+    const newActive = !monitor.active;
+    try {
+      // Optimistic update
+      setMonitor({ ...monitor, active: newActive });
+      await api.toggleMonitorStatus(monitor.id, newActive);
+      Alert.alert('Success', newActive ? 'Monitor resumed' : 'Monitor paused');
+    } catch (error) {
+      // Revert on error
+      setMonitor({ ...monitor, active: !newActive });
+      Alert.alert('Error', 'Failed to update monitor');
+    }
+  };
+
+  const handleDelete = () => {
+    if (!monitor) return;
+    Alert.alert(
+      'Delete Monitor',
+      'Are you sure you want to delete this monitor? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.deleteMonitor(monitor.id);
+              Alert.alert('Deleted', 'Monitor has been deleted');
+              router.back();
+            } catch (error) {
+              Alert.alert('Error', 'Failed to delete monitor');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const handleDeleteHistory = (historyId: number) => {
@@ -229,6 +272,27 @@ export default function MonitorDetailScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Quick Actions Bar */}
+      <View style={styles.actionsBar}>
+        <TouchableOpacity 
+          style={[styles.actionBtn, monitor.active ? styles.actionBtnWarning : styles.actionBtnSuccess]}
+          onPress={handleToggleActive}
+        >
+          <Ionicons name={monitor.active ? 'pause' : 'play'} size={18} color="#fff" />
+          <Text style={styles.actionBtnText}>{monitor.active ? 'Pause' : 'Resume'}</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.actionBtn} onPress={handleOpenUrl}>
+          <Ionicons name="open-outline" size={18} color="#fff" />
+          <Text style={styles.actionBtnText}>Open URL</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={[styles.actionBtn, styles.actionBtnDanger]} onPress={handleDelete}>
+          <Ionicons name="trash-outline" size={18} color="#fff" />
+          <Text style={styles.actionBtnText}>Delete</Text>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView 
         style={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#238636" />}
@@ -258,6 +322,24 @@ export default function MonitorDetailScreen() {
               {cleanValue(monitor.last_value || '') || 'No value captured yet'}
             </Text>
           )}
+        </View>
+
+        {/* Monitor Config Card */}
+        <View style={styles.configCard}>
+          <View style={styles.configRow}>
+            <View style={styles.configItem}>
+              <Text style={styles.configLabel}>Interval</Text>
+              <Text style={styles.configValue}>{monitor.interval}</Text>
+            </View>
+            <View style={styles.configItem}>
+              <Text style={styles.configLabel}>Retries</Text>
+              <Text style={styles.configValue}>{monitor.retry_count || 3}x</Text>
+            </View>
+            <View style={styles.configItem}>
+              <Text style={styles.configLabel}>Delay</Text>
+              <Text style={styles.configValue}>{((monitor.retry_delay || 2000) / 1000).toFixed(1)}s</Text>
+            </View>
+          </View>
         </View>
 
         {/* Filter Tabs */}
@@ -746,5 +828,73 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.2)',
     padding: 8,
     borderRadius: 20,
+  },
+  actionsBar: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
+    backgroundColor: '#161b22',
+    borderBottomWidth: 1,
+    borderBottomColor: '#21262d',
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#21262d',
+  },
+  actionBtnSuccess: {
+    backgroundColor: '#238636',
+  },
+  actionBtnWarning: {
+    backgroundColor: '#9a6700',
+  },
+  actionBtnDanger: {
+    backgroundColor: '#b91c1c',
+  },
+  actionBtnText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  configCard: {
+    backgroundColor: '#161b22',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#30363d',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    overflow: 'hidden',
+  },
+  configRow: {
+    flexDirection: 'row',
+    backgroundColor: 'transparent',
+  },
+  configItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 12,
+    backgroundColor: 'transparent',
+    borderRightWidth: 1,
+    borderRightColor: '#21262d',
+  },
+  configLabel: {
+    color: '#8b949e',
+    fontSize: 11,
+    fontWeight: '500',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  configValue: {
+    color: '#c9d1d9',
+    fontSize: 15,
+    fontWeight: '600',
+    marginTop: 4,
   },
 });

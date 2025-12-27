@@ -14,6 +14,7 @@ import KioskMode from './KioskMode'
 import { ToastProvider } from './contexts/ToastContext'
 import { DialogProvider } from './contexts/DialogContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { ThemeProvider } from './contexts/ThemeContext'
 import type { ReactNode } from 'react'
 
 interface RouteProps {
@@ -37,6 +38,7 @@ const PublicRoute = ({ children }: RouteProps) => {
 
 function App() {
   return (
+    <ThemeProvider>
     <ToastProvider>
       <DialogProvider>
         <AuthProvider>
@@ -69,6 +71,7 @@ function App() {
         </AuthProvider>
       </DialogProvider>
     </ToastProvider>
+    </ThemeProvider>
   )
 }
 

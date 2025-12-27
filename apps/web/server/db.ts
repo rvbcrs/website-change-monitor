@@ -148,9 +148,48 @@ function initDb(): void {
                     console.log('Migrating: Adding consecutive_failures column to monitors table...');
                     db.run("ALTER TABLE monitors ADD COLUMN consecutive_failures INTEGER DEFAULT 0");
                 }
+                const hasSuggestedSelector = rows.some(r => r.name === 'suggested_selector');
+                if (!hasSuggestedSelector) {
+                    console.log('Migrating: Adding suggested_selector column to monitors table...');
+                    db.run("ALTER TABLE monitors ADD COLUMN suggested_selector TEXT");
+                }
+                const hasRetryCount = rows.some(r => r.name === 'retry_count');
+                if (!hasRetryCount) {
+                    console.log('Migrating: Adding retry_count column to monitors table...');
+                    db.run("ALTER TABLE monitors ADD COLUMN retry_count INTEGER DEFAULT 3");
+                }
+                const hasRetryDelay = rows.some(r => r.name === 'retry_delay');
+                if (!hasRetryDelay) {
+                    console.log('Migrating: Adding retry_delay column to monitors table...');
+                    db.run("ALTER TABLE monitors ADD COLUMN retry_delay INTEGER DEFAULT 2000");
+                }
+                const hasGroupId = rows.some(r => r.name === 'group_id');
+                if (!hasGroupId) {
+                    console.log('Migrating: Adding group_id column to monitors table...');
+                    db.run("ALTER TABLE monitors ADD COLUMN group_id INTEGER");
+                }
+                const hasSortOrder = rows.some(r => r.name === 'sort_order');
+                if (!hasSortOrder) {
+                    console.log('Migrating: Adding sort_order column to monitors table...');
+                    db.run("ALTER TABLE monitors ADD COLUMN sort_order INTEGER DEFAULT 0");
+                }
             } else {
                 console.error("Error checking table info:", err);
             }
+        });
+
+        // Groups table for organizing monitors
+        db.run(`CREATE TABLE IF NOT EXISTS groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            color TEXT DEFAULT '#6366f1',
+            icon TEXT DEFAULT 'folder',
+            sort_order INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )`, (err) => {
+            if (err) console.error("Error creating groups table:", err);
         });
 
         // Migration: Add screenshot columns to check_history
@@ -303,6 +342,27 @@ function initDb(): void {
                 if (!hasEmailFrom) {
                     console.log('Migrating: Adding email_from column to settings table...');
                     db.run("ALTER TABLE settings ADD COLUMN email_from TEXT");
+                }
+            }
+        });
+
+        // Migration: Add app_url column to settings
+        db.all("PRAGMA table_info(settings)", (err: Error | null, rows: TableColumn[]) => {
+            if (!err && rows) {
+                const hasAppUrl = rows.some(r => r.name === 'app_url');
+                if (!hasAppUrl) {
+                    console.log('Migrating: Adding app_url column to settings table...');
+                    db.run("ALTER TABLE settings ADD COLUMN app_url TEXT");
+                }
+                const hasWatchdogThreshold = rows.some(r => r.name === 'watchdog_threshold');
+                if (!hasWatchdogThreshold) {
+                    console.log('Migrating: Adding watchdog_threshold column to settings table...');
+                    db.run("ALTER TABLE settings ADD COLUMN watchdog_threshold INTEGER DEFAULT 50");
+                }
+                const hasLanguage = rows.some(r => r.name === 'language');
+                if (!hasLanguage) {
+                    console.log('Migrating: Adding language column to settings table...');
+                    db.run("ALTER TABLE settings ADD COLUMN language TEXT DEFAULT 'en'");
                 }
             }
         });
